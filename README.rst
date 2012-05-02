@@ -2,22 +2,20 @@
 Xport
 ========
 ------------------------------------------------------------
-Python reader for SAS XPORT files.
+Python reader for SAS XPORT data transport files.
 ------------------------------------------------------------
 
 What's it for?
 ==============
 
-XPORT is the binary file format used by a bunch of `United States government agencies<https://www.google.com/search?q=site:.gov+xpt+file>`
-for publishing data sets. It made a lot of sense if you were trying to read data files on your IBM computer back in 1988.
-Today, XPORT files can be kind of a hassle to read if you don't have expensive software installed from SAS Institute Inc.
+XPORT is the binary file format used by a bunch of
+`United States government agencies<https://www.google.com/search?q=site:.gov+xpt+file>`_
+for publishing data sets. It made a lot of sense if you were trying to read data files on your IBM mainframe back in 1988.
 
-Or Python.
+How do I use it?
+================
 
-Let's make this short and sweet
-===============================
-
-::
+Let's make this short and sweet::
 
     import xport
     with xport.XportReader(xport_file) as reader:
@@ -42,7 +40,7 @@ Once you have an `XportReader` object, there are a few properties and methods th
 
 * reader.file_info and reader.member_info: dicts containing information about when and how the dataset was created.
 
-* reader.fields: list of fields. Each field is a dict containing the following keys, copied from the spec::
+* reader.fields: list of fields in the dataset. Each field is a dict containing the following keys, copied from the spec::
 
     struct NAMESTR {
         short   ntype;              /* VARIABLE TYPE: 1=NUMERIC, 2=CHAR    */
@@ -64,13 +62,13 @@ Once you have an `XportReader` object, there are a few properties and methods th
         char    rest[52];           /* remaining fields are irrelevant     */
         };
 
-**NOTE: items with starts are renamed for clarity, from the short names given in the spec.
+ **NOTE: items with starts are renamed for clarity, from the short names given in the spec.
  Since this is an alpha release, other items may be renamed in the future, if someone tells me what they're for.**
 
 Random access to records
 ========================
 
-If you want to move around the file randomly, instead of iterating, you can use Python's standard file access
+If you want to access specific records, instead of iterating, you can use Python's standard file access
 functions and a little math.
 
 Get 1000th record::
@@ -94,10 +92,11 @@ Good old fixed-width binary file formats.)
 Please fix/steal this code!
 ===========================
 
-I wrote this up because it seemed ridiculous that there was no easy way to read a standard government data format.
-I may have gotten things wrong. If you find a file that doesn't decode propery, send a pull request.
-`The official spec is here.<http://support.sas.com/techsup/technote/ts140.html>` It's surprisingly straightforward
+I wrote this up because it seemed ridiculous that there was no easy way to read a standard government data format
+in most programming languages. I may have gotten things wrong. If you find a file that doesn't decode propery,
+send a pull request.
+`The official spec is here<http://support.sas.com/techsup/technote/ts140.html>`_. It's surprisingly straightforward
 for a binary file format from the 80s.
 
-Please also consider using this code as a base to write your own library for your favorite programming language.
+Please also feel free to use this code as a base to write your own library for your favorite programming language.
 Government data should be accessible, man.
