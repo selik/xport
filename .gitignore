@@ -2,3 +2,5 @@
 .DS_Store*
 build/*
 *.pyc
+dist/*
+xport.egg-info/*
