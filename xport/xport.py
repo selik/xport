@@ -229,6 +229,8 @@ def parse_var(info, var):
     elif var.type == 1:
         # IBM float
         val = ibm_to_ieee(var_str)
+        # Note that the namestr may say 'decimals = 0'
+        # Even when the value is not an integer
     else:
         raise XptError('Unknown variable type: {0}'.format(var))
 
