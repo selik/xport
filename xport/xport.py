@@ -19,7 +19,7 @@ class XptNotMember(XptError):
     pass
 
 
-class XptReader(object):
+class XportReader(object):
     def __init__(self, f):
         '''
         Yields observations as dictionaries.
@@ -411,7 +411,7 @@ if __name__ == '__main__':
 
     # Write CSV
     writer = None
-    with XptReader(args.i) as reader:
+    with XportReader(args.i) as reader:
         for obs in reader:
             if not writer:
                 writer = csv.DictWriter(args.o, obs.keys())
