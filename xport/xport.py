@@ -53,7 +53,7 @@ def read_xpt(f):
 
     is_member = lambda x: x is not None
     members = takewhile(is_member, imap(read_member, repeat(f)))
-    
+
     XPT = namedtuple('XPT', 'header members')
     return XPT(header, members)
 
@@ -117,12 +117,12 @@ def read_member_header(f):
         header = Header._make(struct.unpack(fmt, info))
     except struct_error:
         raise XptError('Could not unpack member header: {0}'.format(info))
-    
+
     if header.prefix1 != 'HEADER RECORD*******MEMBER  HEADER RECORD!!!!!!!':
         raise XptNotMember('Expected member header, found:{0}'.format(header))
     if header.prefix2 != 'HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!':
         raise XptNotMember('Expected member header, found:{0}'.format(header))
-    
+
     return header
 
 
@@ -137,7 +137,7 @@ def read_namestrs(f, member_header):
         short   nvar0;              /* VARNUM                              */
         char8   nname;              /* NAME OF VARIABLE                    */
         char40  nlabel;             /* LABEL OF VARIABLE                   */
-      
+
         char8   nform;              /* NAME OF FORMAT                      */
         short   nfl;                /* FORMAT FIELD LENGTH OR 0            */
         short   nfd;                /* FORMAT NUMBER OF DECIMALS           */
@@ -197,6 +197,8 @@ def read_namestrs_header(f):
 
 def read_obs(f, varlist):
     header = read_obs_header(f)
+    line_size = 80
+    xport_padding_byte = ' ' # ie, ascii space
 
     info_size = reduce(lambda x, y: x + int(y.length), varlist, 0)
     is_ob = (lambda x: x is not None and len(x) == info_size)
@@ -204,6 +206,9 @@ def read_obs(f, varlist):
     # TODO: detect new member/dataset
 
     for info in takewhile(is_ob, imap(f.read, repeat(info_size))):
+        # -- check that we're not reading padding at the end as data
+        if len(info) < line_size and all(c == xport_padding_byte for c in info):
+            continue
         yield parse_ob(info, varlist)
 
 
@@ -330,9 +335,9 @@ def ibm_to_ieee(ibm):
        ieee1 |=
        (((((long)(*temp & 0x7f) - 65) << 2) + shift + 1023) << 20) |
        (xport1 & 0x80000000);
-     REVERSE(&ieee1,sizeof(unsigned long)); 
+     REVERSE(&ieee1,sizeof(unsigned long));
        memcpy(ieee,((char *)&ieee1)+sizeof(unsigned long)-4,4);
-       REVERSE(&ieee2,sizeof(unsigned long)); 
+       REVERSE(&ieee2,sizeof(unsigned long));
        memcpy(ieee+4,((char *)&ieee2)+sizeof(unsigned long)-4,4);
        return;
     }
@@ -359,7 +364,7 @@ def ibm_to_ieee(ibm):
 
     # set the sign bit
     sign = ulong & 0x8000000000000000
-    ieee |= sign    
+    ieee |= sign
 
     # fix the exponent
     exponent = (ulong & 0x7f00000000000000) >> (24 + 32)
@@ -374,7 +379,7 @@ def ibm_to_ieee(ibm):
 
 def read_obs_header(f):
     info = f.read(80)
-    
+
     fmt = '>48s32s'
     fields = 'prefix padding'
     Header = namedtuple('ObsHeader', fields)
