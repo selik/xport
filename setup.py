@@ -12,6 +12,7 @@ setup(
     description='SAS XPORT data file reader.',
     keywords='sas xport',
     long_description=open('README.rst').read(),
+    test_suite='xport.tests.test_xport',
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Topic :: Text Processing",
