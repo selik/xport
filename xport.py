@@ -220,7 +220,7 @@ def _read_namestr_record(fp, size):
     name = name.decode('ascii').rstrip()
     is_numeric = True if is_numeric == 1 else False
 
-    if is_numeric and length < 2 or length > 8:
+    if is_numeric and (length < 2 or length > 8):
         msg = 'Numerics must be floating points, 2 to 8 bytes long, not %r'
         raise NotImplementedError(msg % length)
 
