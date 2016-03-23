@@ -8,96 +8,69 @@ Python reader for SAS XPORT data transport files.
 What's it for?
 ==============
 
-XPORT is the binary file format used by a bunch of `United States government agencies`_
-for publishing data sets. It made a lot of sense if you were trying to read data files on your IBM mainframe back in 1988.
+XPORT is the binary file format used by a bunch of `United States government
+agencies`_ for publishing data sets. It made a lot of sense if you were trying
+to read data files on your IBM mainframe back in 1988.
+
+The official `SAS specification for XPORT`_ is relatively straightforward.
+The hardest part is converting IBM-format floating point to IEEE-format,
+which the specification explains in detail.
+
 
 .. _United States government agencies: https://www.google.com/search?q=site:.gov+xpt+file
+
+.. _SAS specification for XPORT: http://support.sas.com/techsup/technote/ts140.html
+
 
 How do I use it?
 ================
 
-Let's make this short and sweet::
+This module mimics the ``csv`` module of the standard library::
 
     import xport
-    with xport.XportReader(xport_file) as reader:
-        for row in reader:
+    with open('example.xpt', 'rb') as f:
+        for row in xport.reader(f):
             print row
 
-Each `row` will be a dict with a key for each field in the dataset. Values will be either a unicode string,
-a float or an int, depending on the type specified in the file for that field.
+Each ``row`` will be a namedtuple, with an attribute for each field in the
+dataset. Values will be either a unicode string or a float, as specified by the
+XPT file header.
 
-Getting file info
-=================
 
-Once you have an `XportReader` object, there are a few properties and methods that will give you details about the file:
+The ``reader`` object also has a handful of metadata:
 
-* reader.file: the underlying Python file object (see next section).
+* ``reader.fields`` -- Names of the fields in each observation.
 
-* reader.record_start: the position (in bytes) in the file where records start (see next section).
+* ``reader.version`` -- SAS version number used to create the XPT file.
 
-* reader.record_length: the length (in bytes) of each record (see next section).
+* ``reader.os`` -- Operating system used to create the XPT file.
 
-* reader.record_count(): number of records in file. (Warning: this will seek to the end of the file to determine file length.)
+* ``reader.created`` -- Date and time that the XPT file was created.
 
-* reader.file_info and reader.member_info: dicts containing information about when and how the dataset was created.
+* ``reader.modified`` -- Date and time that the XPT file was last modified.
 
-* reader.fields: list of fields in the dataset. Each field is a dict containing the following keys, copied from the spec::
 
-    struct NAMESTR {
-        short   ntype;              /* VARIABLE TYPE: 1=NUMERIC, 2=CHAR    */
-        short   nhfun;              /* HASH OF NNAME (always 0)            */
-    *   short   field_length;       /* LENGTH OF VARIABLE IN OBSERVATION   */
-        short   nvar0;              /* VARNUM                              */
-    *   char8   name;              /* NAME OF VARIABLE                    */
-    *   char40  label;             /* LABEL OF VARIABLE                   */
+You can also use the ``xport`` module as a command-line tool to convert an XPT
+file to CSV (comma-separated values).::
 
-        char8   nform;              /* NAME OF FORMAT                      */
-        short   nfl;                /* FORMAT FIELD LENGTH OR 0            */
-    *   short   num_decimals;       /* FORMAT NUMBER OF DECIMALS           */
-        short   nfj;                /* 0=LEFT JUSTIFICATION, 1=RIGHT JUST  */
-        char    nfill[2];           /* (UNUSED, FOR ALIGNMENT AND FUTURE)  */
-        char8   niform;             /* NAME OF INPUT FORMAT                */
-        short   nifl;               /* INFORMAT LENGTH ATTRIBUTE           */
-        short   nifd;               /* INFORMAT NUMBER OF DECIMALS         */
-        long    npos;               /* POSITION OF VALUE IN OBSERVATION    */
-        char    rest[52];           /* remaining fields are irrelevant     */
-        };
+    $ python -m xport example.xpt > example.csv
 
- **NOTE: items with stars have been renamed from the short names given in the spec.
- Since this is an alpha release, other items may be renamed in the future, if someone tells me what they're for.**
 
 Random access to records
 ========================
 
-If you want to access specific records, instead of iterating, you can use Python's standard file access
-functions and a little math.
+If you want to access specific records, you should either consume the reader in
+a ``list`` or use one of ``itertools`` recipes_ for quickly consuming and
+throwing away unncessary elements.
 
-Get 1000th record::
+.. _recipes: https://docs.python.org/2/library/itertools.html#recipes
 
-    reader.file.seek(reader.record_start + reader.record_length * 1000, 0)
-    reader.next()
 
-Get record before most recent one fetched::
+Recent changes
+==============
 
-    reader.file.seek(-reader.record_length * 2, 1)
-    reader.next()
+* Improved the API.
 
-Get last record::
+* Fixed handling of NaNs.
 
-    reader.file.seek(reader.record_start + reader.record_length * (reader.record_count() - 1), 0)
-    reader.next()
-
-(In this last example, note that we can't seek from the end of the file, because there may be padding bytes.
-Good old fixed-width binary file formats.)
-
-Please fix/steal this code!
-===========================
-
-I wrote this up because it seemed ridiculous that there was no easy way to read a standard government data format
-in most programming languages. I may have gotten things wrong. If you find a file that doesn't decode propery,
-send a pull request. `The official spec is here`_. It's surprisingly straightforward for a binary file format from the 80s.
-
-.. _The official spec is here: http://support.sas.com/techsup/technote/ts140.html
-
-Please also feel free to use this code as a base to write your own library for your favorite programming language.
-Government data should be accessible, man.
+* Fixed piping the file from ``stdin`` in Python 3.

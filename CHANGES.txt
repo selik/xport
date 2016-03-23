@@ -1,1 +1,2 @@
 v0.1.0, 2012-05-02 -- Initial release.
+v0.2.0, 2016-03-22 -- Major revision.
