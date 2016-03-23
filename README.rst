@@ -81,10 +81,8 @@ Recent changes
 Authors
 =======
 
-`Jack Cushman`_ wrote the original verision in 2012.
-Michael Selik re-wrote this current version from scratch
-to simplify the code, to fix a few bugs, and
-to more closely mimic the standard library ``csv`` module.
+Original version by `Jack Cushman`_, 2012.
+Major revision by Michael Selik, 2016.
 
 .. _Jack Cushman: https://github.com/jcushman
 
