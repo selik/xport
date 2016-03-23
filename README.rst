@@ -1,9 +1,9 @@
 ========
 Xport
 ========
-------------------------------------------------------------
-Python reader for SAS XPORT data transport files.
-------------------------------------------------------------
+
+Python reader for SAS XPORT data transport files (``*.xpt``).
+
 
 What's it for?
 ==============
@@ -22,6 +22,7 @@ which the specification explains in detail.
 .. _SAS specification for XPORT: http://support.sas.com/techsup/technote/ts140.html
 
 
+
 How do I use it?
 ================
 
@@ -33,8 +34,14 @@ This module mimics the ``csv`` module of the standard library::
             print row
 
 Each ``row`` will be a namedtuple, with an attribute for each field in the
-dataset. Values will be either a unicode string or a float, as specified by the
-XPT file header.
+dataset. Values in the row will be either a unicode string or a float, as
+specified by the XPT file metadata. Note that since XPT files are in an
+unusual binary format, you should open them using mode ``'rb'``.
+
+You can also use the ``xport`` module as a command-line tool to convert an XPT
+file to CSV (comma-separated values).::
+
+    $ python -m xport example.xpt > example.csv
 
 
 The ``reader`` object also has a handful of metadata:
@@ -50,18 +57,13 @@ The ``reader`` object also has a handful of metadata:
 * ``reader.modified`` -- Date and time that the XPT file was last modified.
 
 
-You can also use the ``xport`` module as a command-line tool to convert an XPT
-file to CSV (comma-separated values).::
-
-    $ python -m xport example.xpt > example.csv
-
 
 Random access to records
 ========================
 
 If you want to access specific records, you should either consume the reader in
-a ``list`` or use one of ``itertools`` recipes_ for quickly consuming and
-throwing away unncessary elements.
+a ``list`` (``lst = list(xport.reader(f)))``) or use one of ``itertools``
+recipes_ for quickly consuming and throwing away unncessary elements.
 
 .. _recipes: https://docs.python.org/2/library/itertools.html#recipes
 
@@ -74,3 +76,15 @@ Recent changes
 * Fixed handling of NaNs.
 
 * Fixed piping the file from ``stdin`` in Python 3.
+
+
+Authors
+=======
+
+`Jack Cushman`_ wrote the original verision in 2012.
+Michael Selik re-wrote this current version from scratch
+to simplify the code, to fix a few bugs, and
+to more closely mimic the standard library ``csv`` module.
+
+.. _Jack Cushman: https://github.com/jcushman
+

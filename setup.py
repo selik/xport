@@ -1,20 +1,28 @@
-# -*- coding: utf-8 -*-
-from setuptools import setup, find_packages
+#!/usr/bin/env python
+
+try:
+    from setuptools import setup
+except ImportError:
+    from distutils.core import setup
+
+
+with open('README.rst') as f:
+    readme = f.read()
 
 setup(
     name='xport',
-    version='0.1.0',
-    author=u'Jack Cushman',
-    author_email='jcushman@gmail.com',
-    packages=find_packages(),
-    url='https://github.com/jcushman/xport',
-    license='MIT',
-    description='SAS XPORT data file reader.',
-    keywords='sas xport',
-    long_description=open('README.rst').read(),
-    test_suite='xport.tests.test_xport',
+    version='0.2.0',
+
+    author='Michael Selik',
+    author_email='michael.selik@gmail.com',
+    url='https://github.com/selik/xport',
+
+    description='SAS XPORT file reader',
+    long_description=readme,
+    keywords='sas xport xpt',
+
     classifiers=[
-        "Development Status :: 3 - Alpha",
+        "Development Status :: 4 - Beta",
         "Topic :: Text Processing",
         "Topic :: Utilities",
         "License :: OSI Approved :: MIT License",
@@ -22,4 +30,9 @@ setup(
         "Operating System :: OS Independent",
         "Programming Language :: Python",
         ],
-)
+
+    license='MIT',
+    
+    py_modules=['xport'],
+    #test_suite='test_xport',
+    )

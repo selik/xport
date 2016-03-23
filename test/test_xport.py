@@ -33,7 +33,7 @@ class TestCSVs(unittest.TestCase):
 
 
     def test_csvs(self):
-        for csvfile in glob.glob('testdata/*.csv'):
+        for csvfile in glob.glob('test/data/*.csv'):
             directory, filename = os.path.split(csvfile)
             xptfile = os.path.join(directory, filename[:-4] + '.xpt')
 
@@ -52,7 +52,7 @@ class TestStringsDataset(unittest.TestCase):
 
 
     def test_header(self):
-        with open('testdata/strings.xpt', 'rb') as f:
+        with open('test/data/strings.xpt', 'rb') as f:
             reader = xport.reader(f)
             x, = reader._variables
 
@@ -65,12 +65,12 @@ class TestStringsDataset(unittest.TestCase):
 
 
     def test_length(self):
-        with open('testdata/strings.xpt', 'rb') as f:
+        with open('test/data/strings.xpt', 'rb') as f:
             assert len(list(xport.reader(f))) == 2
 
 
     def test_values(self):
-        with open('testdata/strings.xpt', 'rb') as f:
+        with open('test/data/strings.xpt', 'rb') as f:
             it = (row.X for row in xport.reader(f))
             assert next(it) == ''.join(chr(i) for i in range(1, 101))
             assert next(it) == ''.join(chr(i) for i in range(101,128))
@@ -82,7 +82,7 @@ class TestKnownValuesDataset(unittest.TestCase):
 
 
     def test_header(self):
-        with open('testdata/known_values.xpt', 'rb') as f:
+        with open('test/data/known_values.xpt', 'rb') as f:
             reader = xport.reader(f)
             x, = reader._variables
 
@@ -95,12 +95,12 @@ class TestKnownValuesDataset(unittest.TestCase):
 
 
     def test_length(self):
-        with open('testdata/known_values.xpt', 'rb') as f:
+        with open('test/data/known_values.xpt', 'rb') as f:
             assert len(list(xport.reader(f))) == 2123
 
 
     def test_values(self):
-        with open('testdata/known_values.xpt', 'rb') as f:
+        with open('test/data/known_values.xpt', 'rb') as f:
             it = (row.X for row in xport.reader(f))
             for value in [float(e) for e in range(-1000, 1001)]:
                 assert value == next(it)
@@ -115,7 +115,7 @@ class TestMultipleColumnsDataset(unittest.TestCase):
 
 
     def test_header(self):
-        with open('testdata/multi.xpt', 'rb') as f:
+        with open('test/data/multi.xpt', 'rb') as f:
             reader = xport.reader(f)
             x, y = reader._variables
 
@@ -133,7 +133,7 @@ class TestMultipleColumnsDataset(unittest.TestCase):
 
 
     def test_length(self):
-        with open('testdata/multi.xpt', 'rb') as f:
+        with open('test/data/multi.xpt', 'rb') as f:
             assert len(list(xport.reader(f))) == 20
 
 
@@ -142,7 +142,7 @@ class TestMultipleColumnsDataset(unittest.TestCase):
             This is one time where television really fails to capture
             the true excitement of a large squirrel predicting the weather.
             '''.split()
-        with open('testdata/multi.xpt', 'rb') as f:
+        with open('test/data/multi.xpt', 'rb') as f:
             for (i, s), (x, y) in zip(enumerate(strings, 1), xport.reader(f)):
                 assert (x, y) == (s, i)
 
