@@ -10,6 +10,7 @@ import argparse
 import collections
 import contextlib
 from datetime import datetime
+from functools import partial
 import struct
 import sys
 
@@ -42,6 +43,11 @@ def ibm_to_ieee(ibm):
     '''
     Translate IBM-format floating point numbers (as bytes) to IEEE float.
     '''
+    # pad-out to 8 bytes if necessary
+    size = len(ibm)
+    if size != 8:
+        assert 2 <= size <= 8, 'Expected 2 to 8 bytes, not %r' % size
+        ibm += b'\x00' * (8 - size)
 
     # parse the 64 bits of IBM float as one 8-byte unsigned long long
     ulong = struct.unpack('>Q', ibm)[0]
@@ -214,8 +220,8 @@ def _read_namestr_record(fp, size):
     name = name.decode('ascii').rstrip()
     is_numeric = True if is_numeric == 1 else False
 
-    if is_numeric and length != 8:
-        msg = 'Only 8-byte floats have been implemented, not %r'
+    if is_numeric and length < 2 or length > 8:
+        msg = 'Numerics must be floating points, 2 to 8 bytes long, not %r'
         raise NotImplementedError(msg % length)
 
     return Variable(name, is_numeric, position, length)
@@ -335,11 +341,25 @@ class DictReader(object):
 
 
 
-# @contextlib.contextmanager
-# def open(filename):
-#     f = open(filename)
-#     yield reader(f)
-#     f.close()
+def to_numpy(filename):
+    '''
+    Read a file in SAS XPT format and return a NumPy array.
+    '''
+    import numpy as np
+    with open(filename, 'rb') as f:
+        return np.vstack(reader(f))
+
+
+
+def to_dataframe(filename):
+    '''
+    Read a file in SAS XPT format and return a Pandas DataFrame.
+    '''
+    import pandas as pd
+    with open(filename, 'rb') as f:
+        xptfile = reader(f)
+        rows = list(xptfile)
+        return pd.DataFrame(rows, columns=xptfile.fields)
 
 
 
