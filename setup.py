@@ -11,7 +11,7 @@ with open('README.rst') as f:
 
 setup(
     name='xport',
-    version='0.3.3',
+    version='0.3.4',
 
     author='Michael Selik',
     author_email='michael.selik@gmail.com',

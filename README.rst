@@ -40,10 +40,26 @@ dataset. Values in the row will be either a unicode string or a float, as
 specified by the XPT file metadata. Note that since XPT files are in an
 unusual binary format, you should open them using mode ``'rb'``.
 
+
+
+For convenient conversion to a `NumPy`_ array or `Pandas`_ dataframe, you can use ``to_numpy`` and ``to_dataframe``.
+
+.. code:: python
+
+    a = xport.to_numpy('example.xpt')
+    df = xport.to_dataframe('example.xpt')
+
+.. _NumPy: http://www.numpy.org/
+
+.. _Pandas: http://pandas.pydata.org/
+
+
+
 You can also use the ``xport`` module as a command-line tool to convert an XPT
-file to CSV (comma-separated values).::
+file to CSV (comma-separated values) file.::
 
     $ python -m xport example.xpt > example.csv
+
 
 
 The ``reader`` object also has a handful of metadata:

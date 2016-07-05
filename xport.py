@@ -367,8 +367,7 @@ def to_dataframe(filename):
     import pandas as pd
     with open(filename, 'rb') as f:
         xptfile = reader(f)
-        rows = list(xptfile)
-        return pd.DataFrame(rows, columns=xptfile.fields)
+        return pd.DataFrame(list(xptfile), columns=xptfile.fields)
 
 
 
