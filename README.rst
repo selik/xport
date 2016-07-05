@@ -26,7 +26,9 @@ which the specification explains in detail.
 How do I use it?
 ================
 
-This module mimics the ``csv`` module of the standard library::
+This module mimics the ``csv`` module of the standard library
+
+.. code:: python
 
     import xport
     with open('example.xpt', 'rb') as f:
@@ -62,10 +64,24 @@ Random access to records
 ========================
 
 If you want to access specific records, you should either consume the reader in
-a ``list`` (``lst = list(xport.reader(f)))``) or use one of ``itertools``
+a ``list`` or use one of ``itertools``
 recipes_ for quickly consuming and throwing away unncessary elements.
 
+.. code:: python
+
+    # Collect all the records in a list for random access
+    rows = list(xport.reader(f)))
+
+    # Select only record 42
+    from itertools import islice
+    row = next(islice(xport.reader(f), 42, None))
+
+    # Select only the last 42 records
+    from collections import deque
+    rows = deque(xport.reader(f), maxlen=42)
+
 .. _recipes: https://docs.python.org/2/library/itertools.html#recipes
+
 
 
 Recent changes
