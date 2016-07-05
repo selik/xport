@@ -55,14 +55,7 @@ For convenient conversion to a `NumPy`_ array or `Pandas`_ dataframe, you can us
 
 
 
-You can also use the ``xport`` module as a command-line tool to convert an XPT
-file to CSV (comma-separated values) file.::
-
-    $ python -m xport example.xpt > example.csv
-
-
-
-The ``reader`` object also has a handful of metadata:
+The ``reader`` object has a handful of metadata attributes:
 
 * ``reader.fields`` -- Names of the fields in each observation.
 
@@ -73,6 +66,13 @@ The ``reader`` object also has a handful of metadata:
 * ``reader.created`` -- Date and time that the XPT file was created.
 
 * ``reader.modified`` -- Date and time that the XPT file was last modified.
+
+
+
+You can also use the ``xport`` module as a command-line tool to convert an XPT
+file to CSV (comma-separated values) file.::
+
+    $ python -m xport example.xpt > example.csv
 
 
 
