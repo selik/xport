@@ -44,10 +44,9 @@ def ibm_to_ieee(ibm):
     Translate IBM-format floating point numbers (as bytes) to IEEE float.
     '''
     # pad-out to 8 bytes if necessary
-    size = len(ibm)
-    if size != 8:
-        assert 2 <= size <= 8, 'Expected 2 to 8 bytes, not %r' % size
-        ibm += b'\x00' * (8 - size)
+    # we expect 2 to 8 bytes, but there's no need to check
+    # bizarre sizes will cause a struct module unpack error
+    ibm = ibm.ljust(8, b'0')
 
     # parse the 64 bits of IBM float as one 8-byte unsigned long long
     ulong = struct.unpack('>Q', ibm)[0]
