@@ -147,6 +147,55 @@ class TestMultipleColumnsDataset(unittest.TestCase):
                 assert (x, y) == (s, i)
 
 
+class TestIEEEtoIBM(unittest.TestCase):
+
+    def roundtrip(self, n):
+        ibm = xport.ieee_to_ibm(n)
+        ieee = xport.ibm_to_ieee(ibm)
+        return round(ieee, 9)
+
+    def test_overflow(self):
+        with self.assertRaises(xport.Overflow):
+            xport.ieee_to_ibm(16 ** 63)
+
+    def test_underflow(self):
+        with self.assertRaises(xport.Underflow):
+            xport.ieee_to_ibm(16 ** -66)
+
+    def test_nan(self):
+        n = float('nan')
+        self.assertTrue(math.isnan(self.roundtrip(n)))
+
+    def test_zero(self):
+        self.assertEqual(0, self.roundtrip(0))
+
+    def test_small_magnitude_integers(self):
+        for i in range(-1000, 1000):
+            self.assertEqual(i, self.roundtrip(i))
+
+    def test_small_magnitude_floats(self):
+        for i in range(-10, 10):
+            i /= 1000
+            self.assertEqual(i, self.roundtrip(i))
+
+    def test_large_magnitude_floats(self):
+        n = int(1e9)
+        for i in range(n, n + 100):
+            self.assertEqual(i, self.roundtrip(i))
+
+    def test_large_magnitude_floats_with_fraction(self):
+        offset = 1e9
+        for i in range(100):
+            i /= 1e9
+            x = i + offset
+            self.assertEqual(x, self.roundtrip(x))
+
+    def test_very_small_magnitude_floats(self):
+        for i in range(-10, 10):
+            i /= 1e6
+            self.assertEqual(i, self.roundtrip(i))
+
+
 if __name__ == '__main__':
     unittest.main()
 

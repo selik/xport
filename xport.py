@@ -14,8 +14,19 @@ from functools import partial
 import struct
 import sys
 
+import math
+import re
+
 
 __all__ = ['reader', 'DictReader']
+
+
+
+class Overflow(ArithmeticError):
+    'Number too large to express'
+
+class Underflow(ArithmeticError):
+    'Number too small to express, rounds to zero'
 
 
 
@@ -83,10 +94,94 @@ def ibm_to_ieee(ibm):
     exponent -= 65
     exponent <<= 2
     exponent += shift + 1023
-    exponent <<= (20 + 32)
+    exponent <<= 52
     ieee |= exponent
 
     return struct.unpack(">d", struct.pack(">Q", ieee))[0]
+
+
+
+def _floating_point_components(n):
+    '''
+    Parse a Python float into a sign, integer, fraction, and exponent.
+    No bias to the exponent and no implicit bits for the fraction.
+    '''
+    # # Python uses IEEE: sign * 1.mantissa * 2 ** (exponent - 1023)
+    # # 1-bit     sign
+    # # 11-bits   exponent
+    # # 52-bits   mantissa
+    # bits = struct.pack('>d', ieee)
+    # double, = struct.unpack('>Q', bits)
+    # sign = (double & (1 << 63)) >> 63
+    # exponent = ((double & (0x7ff << 52)) >> 52) - 1023
+    # mantissa = double & 0x000fffffffffffff
+
+    pattern = r'(-?)0x([a-f0-9]+)\.([a-f0-9]+)p([+\-]\d+)'
+    s = float(n).hex()
+    mo = re.match(pattern, s)
+    if mo is None:
+        raise ValueError('Could not parse components from float.hex() %r' % s)
+    sign, integer, fraction, exponent = mo.groups()
+
+    if sign == '':
+        sign = 0
+    elif sign == '-':
+        sign = 1
+    else:
+        raise RuntimeError('unexpected sign value %r' % sign)
+
+    integer = int(integer, 16)
+    fraction = int(fraction, 16)
+    exponent = int(exponent)
+
+    return sign, integer, fraction, exponent
+
+
+
+def ieee_to_ibm(ieee):
+    '''
+    Translate Python floating point numbers to IBM-format (as bytes).
+    '''
+
+    if ieee == 0.0:
+        return b'\x00' * 8
+    if math.isnan(ieee):
+        return b'_' + b'\x00' * 7
+    if math.isinf(ieee):
+        raise NotImplementedError('Cannot convert infinity')
+
+    sign, integer, fraction, exponent = _floating_point_components(ieee)
+
+    if exponent > 248:
+        raise Overflow('Cannot store magnitude more than ~ 16 ** 63 as IBM-format')
+    if exponent < -260:
+        raise Underflow('Cannot store magnitude less than ~ 16 ** -65 as IBM-format')
+
+    # IEEE mantissa has an implicit 1 left of the radix:    1.significand
+    # IBM mantissa has an implicit 0 left of the radix:     0.significand
+    mantissa = 0x0010000000000000 | fraction
+
+    # IEEE exponents are for base 2:    mantissa * 2 ** exponent
+    # IBM exponents are for base 16:    mantissa * 16 ** exponent
+    # We must divide the exponent by 4, since 16 ** x == 2 ** (4 * x)
+    quotient, remainder = divmod(exponent, 4)
+    exponent = quotient
+    mantissa <<= remainder
+
+    # adjust exponent for making IEEE's implicit 1.mantissa explicit
+    exponent += 1
+
+    # IBM exponents are excess 64
+    exponent += 64
+
+    # IBM mainframe:    sign * mantissa * 16 ** (exponent - 64)
+    # 1-bit     sign
+    # 7-bits    exponent
+    # 56-bits   mantissa    implicitly begins with zero: 0.mmm
+    sign <<= 63
+    exponent <<= 56
+
+    return struct.pack('>Q', sign | exponent | mantissa)
 
 
 
