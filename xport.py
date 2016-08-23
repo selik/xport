@@ -169,7 +169,7 @@ def _parse_field(raw, variable):
 
 class reader(object):
     '''
-    Deserialize ``fp`` (a ``.read()``-supporting file-like object containing
+    Deserialize ``self._fp`` (a ``.read()``-supporting file-like object containing
     an XPT document) to a Python object.
 
     The returned object is an iterator.
@@ -183,18 +183,18 @@ class reader(object):
     def __init__(self, fp):
         self._fp = fp
 
-        version, os, created, modified = _read_header(fp)
+        version, os, created, modified = self._read_header()
         self.version = version
         self.os = os
         self.created = created
         self.modified = modified
 
-        namestr_size = _read_member_header(fp)[-1]
-        nvars = _read_namestr_header(fp)
+        namestr_size = self._read_member_header()[-1]
+        nvars = self._read_namestr_header()
 
-        self._variables = _read_namestr_records(fp, nvars, namestr_size)
+        self._variables = self._read_namestr_records(nvars, namestr_size)
 
-        _read_observations_header(fp)
+        self._read_observations_header()
 
 
     @property
@@ -208,199 +208,192 @@ class reader(object):
 
 
     def __iter__(self):
-        for obs in _read_observations(self._fp, self._variables):
+        for obs in self._read_observations(self._variables):
             yield obs
 
 
+    def _read_header(self):
+        # --- line 1 -------------
+        fmt = '>48s32s'
+        raw = self._fp.read(80)
+        tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
 
-def _read_header(fp):
-    # --- line 1 -------------
-    fmt = '>48s32s'
-    raw = fp.read(80)
-    tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
+        prefix, padding = tokens
 
-    prefix, padding = tokens
+        if prefix != b'HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!':
+            raise ValueError('Invalid header: %r' % prefix)
+        if padding != b'0' * 30:
+            raise ValueError('Invalid header: %r' % padding)
 
-    if prefix != b'HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!':
-        raise ValueError('Invalid header: %r' % prefix)
-    if padding != b'0' * 30:
-        raise ValueError('Invalid header: %r' % padding)
+        # --- line 2 -------------
+        fmt = '>8s8s8s8s8s24s16s'
+        raw = self._fp.read(80)
+        tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
 
-    # --- line 2 -------------
-    fmt = '>8s8s8s8s8s24s16s'
-    raw = fp.read(80)
-    tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
+        prefix = tokens[:3]
+        version, os, _, created = tokens[3:]
 
-    prefix = tokens[:3]
-    version, os, _, created = tokens[3:]
+        if prefix != (b'SAS', b'SAS', b'SASLIB'):
+            raise ValueError('Invalid header: %r' % prefix)
 
-    if prefix != (b'SAS', b'SAS', b'SASLIB'):
-        raise ValueError('Invalid header: %r' % prefix)
+        version = tuple(int(s) for s in version.split(b'.'))
+        created = parse_date(created)
 
-    version = tuple(int(s) for s in version.split(b'.'))
-    created = parse_date(created)
+        # --- line 3 -------------
+        fmt = '>16s64s'
+        raw = self._fp.read(80)
+        tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
 
-    # --- line 3 -------------
-    fmt = '>16s64s'
-    raw = fp.read(80)
-    tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
+        modified, _ = tokens
 
-    modified, _ = tokens
+        modified = parse_date(modified)
 
-    modified = parse_date(modified)
-
-    # ------------------------
-    return version, os, created, modified
-
+        # ------------------------
+        return version, os, created, modified
 
 
-def _read_member_header(fp):
-    # --- line 1 -------------
-    fmt = '>48s26s4s2s'
-    raw = fp.read(80)
-    tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
+    def _read_member_header(self):
+        # --- line 1 -------------
+        fmt = '>48s26s4s2s'
+        raw = self._fp.read(80)
+        tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
 
-    prefix, _, namestr_size, _ = tokens
+        prefix, _, namestr_size, _ = tokens
 
-    if prefix != b'HEADER RECORD*******MEMBER  HEADER RECORD!!!!!!!':
-        raise ValueError('Invalid header: %r' % prefix)
+        if prefix != b'HEADER RECORD*******MEMBER  HEADER RECORD!!!!!!!':
+            raise ValueError('Invalid header: %r' % prefix)
 
-    namestr_size = int(namestr_size)
+        namestr_size = int(namestr_size)
 
-    # --- line 2 -------------
-    fmt = '>48s32s'
-    raw = fp.read(80)
-    tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
+        # --- line 2 -------------
+        fmt = '>48s32s'
+        raw = self._fp.read(80)
+        tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
 
-    prefix, _ = tokens
+        prefix, _ = tokens
 
-    if prefix != b'HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!':
-        raise ValueError('Invalid header: %r' % prefix)
+        if prefix != b'HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!':
+            raise ValueError('Invalid header: %r' % prefix)
 
-    # --- line 3 -------------
-    fmt = '>8s8s8s8s8s24s16s'
-    raw = fp.read(80)
-    tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
+        # --- line 3 -------------
+        fmt = '>8s8s8s8s8s24s16s'
+        raw = self._fp.read(80)
+        tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
 
-    prefix, dsname, sasdata, version, os, _, created = tokens
-    
-    if prefix != b'SAS':
-        raise ValueError('Invalid header: %r' % prefix)
-    if sasdata != b'SASDATA':
-        raise ValueError('Invalid header: %r' % prefix)
-    
-    version = tuple(map(int, version.rstrip().split(b'.')))
-    created = parse_date(created)
+        prefix, dsname, sasdata, version, os, _, created = tokens
 
-    # --- line 4 -------------
-    fmt = '>16s16s40s8s'
-    raw = fp.read(80)
-    tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
+        if prefix != b'SAS':
+            raise ValueError('Invalid header: %r' % prefix)
+        if sasdata != b'SASDATA':
+            raise ValueError('Invalid header: %r' % prefix)
 
-    modified, _, dslabel, dstype = tokens
+        version = tuple(map(int, version.rstrip().split(b'.')))
+        created = parse_date(created)
 
-    modified = parse_date(modified)
+        # --- line 4 -------------
+        fmt = '>16s16s40s8s'
+        raw = self._fp.read(80)
+        tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
 
-    # ------------------------
-    return (dsname, dstype, dslabel,
-            version, os,
-            created, modified,
-            namestr_size)
+        modified, _, dslabel, dstype = tokens
 
+        modified = parse_date(modified)
 
-
-def _read_namestr_header(fp):
-    # --- line 1 -------------
-    fmt = '>48s6s4s22s'
-    raw = fp.read(80)
-    tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
-
-    prefix, _, number_of_variables, _ = tokens
-
-    if prefix != b'HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!':
-        raise ValueError('Invalid header: %r' % prefix)
-
-    # ------------------------        
-    return int(number_of_variables)
+        # ------------------------
+        return (dsname, dstype, dslabel,
+                version, os,
+                created, modified,
+                namestr_size)
 
 
+    def _read_namestr_header(self):
+        # --- line 1 -------------
+        fmt = '>48s6s4s22s'
+        raw = self._fp.read(80)
+        tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
 
-def _read_namestr_record(fp, size):
-    if size == 140:
-        fmt = '>hhhh8s40s8shhh2s8shhl52s'
-    else:
-        assert size == 136
-        fmt = '>hhhh8s40s8shhh2s8shhl48s'
-    raw = fp.read(size)
-    chunks = struct.unpack(fmt, raw)
-    tokens = [t.rstrip() if isinstance(t, str) else t for t in chunks]
+        prefix, _, number_of_variables, _ = tokens
 
-    is_numeric, _, length, number, name, label = tokens[:6]
-    format_data = tokens[6:-2]
-    position = tokens[-2]
+        if prefix != b'HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!':
+            raise ValueError('Invalid header: %r' % prefix)
 
-    name = name.decode('ascii').rstrip()
-    is_numeric = True if is_numeric == 1 else False
-
-    if is_numeric and (length < 2 or length > 8):
-        msg = 'Numerics must be floating points, 2 to 8 bytes long, not %r'
-        raise NotImplementedError(msg % length)
-
-    return Variable(name, is_numeric, position, length)
+        # ------------------------
+        return int(number_of_variables)
 
 
+    def _read_namestr_record(self, size):
+        if size == 140:
+            fmt = '>hhhh8s40s8shhh2s8shhl52s'
+        else:
+            assert size == 136
+            fmt = '>hhhh8s40s8shhh2s8shhl48s'
+        raw = self._fp.read(size)
+        chunks = struct.unpack(fmt, raw)
+        tokens = [t.rstrip() if isinstance(t, str) else t for t in chunks]
 
-def _read_namestr_records(fp, n, size):
-    variables = [_read_namestr_record(fp, size) for i in range(n)]
-    spillover = n * size % 80
-    if spillover != 0:
-        padding = 80 - spillover
-        fp.read(padding)
-    return variables
+        is_numeric, _, length, number, name, label = tokens[:6]
+        format_data = tokens[6:-2]
+        position = tokens[-2]
+
+        name = name.decode('ascii').rstrip()
+        is_numeric = True if is_numeric == 1 else False
+
+        if is_numeric and (length < 2 or length > 8):
+            msg = 'Numerics must be floating points, 2 to 8 bytes long, not %r'
+            raise NotImplementedError(msg % length)
+
+        return Variable(name, is_numeric, position, length)
 
 
-
-def _read_observations_header(fp):
-    # --- line 1 -------------
-    fmt = '>48s32s'
-    raw = fp.read(80)
-    tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
-
-    prefix, _ = tokens
-
-    if prefix != b'HEADER RECORD*******OBS     HEADER RECORD!!!!!!!':
-        raise ValueError('Invalid header: %r' % prefix)
+    def _read_namestr_records(self, n, size):
+        variables = [self._read_namestr_record(size) for i in range(n)]
+        spillover = n * size % 80
+        if spillover != 0:
+            padding = 80 - spillover
+            self._fp.read(padding)
+        return variables
 
 
+    def _read_observations_header(self):
+        # --- line 1 -------------
+        fmt = '>48s32s'
+        raw = self._fp.read(80)
+        tokens = tuple(t.rstrip() for t in struct.unpack(fmt, raw))
 
-def _read_observations(fp, variables):
-    Row = collections.namedtuple('Row', [v.name for v in variables])
+        prefix, _ = tokens
 
-    blocksize = sum(v.size for v in variables)
-    padding = b' '
-    sentinel = padding * blocksize
+        if prefix != b'HEADER RECORD*******OBS     HEADER RECORD!!!!!!!':
+            raise ValueError('Invalid header: %r' % prefix)
 
-    count = 0
-    while True:
-        block = fp.read(blocksize)
-        if len(block) < blocksize:
-            if set(block) != set(padding):
-                raise ValueError('Incomplete record, {!r}'.format(block))
-            remainder = count * blocksize % 80
-            if remainder and len(block) != 80 - remainder:
-                raise ValueError('Insufficient padding at end of file')
-            break
-        elif block == sentinel:
-            rest = fp.read()
-            if set(rest) != set(padding):
-                raise NotImplementedError('Cannot read multiple members.')
-            if blocksize + len(rest) != 80 - (count * blocksize % 80):
-                raise ValueError('Incorrect padding at end of file')
-            break
 
-        count += 1
-        chunks = [block[v.position : v.position + v.size] for v in variables]
-        yield Row._make(_parse_field(raw, v) for raw, v in zip(chunks, variables))
+    def _read_observations(self, variables):
+        Row = collections.namedtuple('Row', [v.name for v in variables])
+
+        blocksize = sum(v.size for v in variables)
+        padding = b' '
+        sentinel = padding * blocksize
+
+        count = 0
+        while True:
+            block = self._fp.read(blocksize)
+            if len(block) < blocksize:
+                if set(block) != set(padding):
+                    raise ValueError('Incomplete record, {!r}'.format(block))
+                remainder = count * blocksize % 80
+                if remainder and len(block) != 80 - remainder:
+                    raise ValueError('Insufficient padding at end of file')
+                break
+            elif block == sentinel:
+                rest = self._fp.read()
+                if set(rest) != set(padding):
+                    raise NotImplementedError('Cannot read multiple members.')
+                if blocksize + len(rest) != 80 - (count * blocksize % 80):
+                    raise ValueError('Incorrect padding at end of file')
+                break
+
+            count += 1
+            chunks = [block[v.position : v.position + v.size] for v in variables]
+            yield Row._make(_parse_field(raw, v) for raw, v in zip(chunks, variables))
 
 
 
