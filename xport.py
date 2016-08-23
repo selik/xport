@@ -46,7 +46,7 @@ def ibm_to_ieee(ibm):
     # pad-out to 8 bytes if necessary
     # we expect 2 to 8 bytes, but there's no need to check
     # bizarre sizes will cause a struct module unpack error
-    ibm = ibm.ljust(8, b'0')
+    ibm = ibm.ljust(8, b'\x00')
 
     # parse the 64 bits of IBM float as one 8-byte unsigned long long
     ulong = struct.unpack('>Q', ibm)[0]
