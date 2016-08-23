@@ -105,36 +105,20 @@ def _floating_point_components(n):
     '''
     Parse a Python float into a sign, integer, fraction, and exponent.
     No bias to the exponent and no implicit bits for the fraction.
+    Similar to float's ``.hex()`` method.
     '''
-    # # Python uses IEEE: sign * 1.mantissa * 2 ** (exponent - 1023)
-    # # 1-bit     sign
-    # # 11-bits   exponent
-    # # 52-bits   mantissa
-    # bits = struct.pack('>d', ieee)
-    # double, = struct.unpack('>Q', bits)
-    # sign = (double & (1 << 63)) >> 63
-    # exponent = ((double & (0x7ff << 52)) >> 52) - 1023
-    # mantissa = double & 0x000fffffffffffff
+    # Python uses IEEE: sign * 1.mantissa * 2 ** (exponent - 1023)
+    # 1-bit     sign
+    # 11-bits   exponent
+    # 52-bits   mantissa/significand
+    bits = struct.pack('>d', n)
+    ulong, = struct.unpack('>Q', bits)
 
-    pattern = r'(-?)0x([a-f0-9]+)\.([a-f0-9]+)p([+\-]\d+)'
-    s = float(n).hex()
-    mo = re.match(pattern, s)
-    if mo is None:
-        raise ValueError('Could not parse components from float.hex() %r' % s)
-    sign, integer, fraction, exponent = mo.groups()
+    sign = (ulong & (1 << 63)) >> 63
+    exponent = ((ulong & (0x7ff << 52)) >> 52) - 1023
+    mantissa = ulong & 0x000fffffffffffff
 
-    if sign == '':
-        sign = 0
-    elif sign == '-':
-        sign = 1
-    else:
-        raise RuntimeError('unexpected sign value %r' % sign)
-
-    integer = int(integer, 16)
-    fraction = int(fraction, 16)
-    exponent = int(exponent)
-
-    return sign, integer, fraction, exponent
+    return sign, 1, mantissa, exponent
 
 
 
