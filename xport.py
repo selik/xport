@@ -160,6 +160,13 @@ def ieee_to_ibm(ieee):
 
 
 
+def _parse_field(raw, variable):
+    if variable.numeric:
+        return ibm_to_ieee(raw)
+    return raw.rstrip().decode('ISO-8859-1')
+
+
+
 def _read_header(fp):
     # --- line 1 -------------
     fmt = '>48s32s'
@@ -317,13 +324,6 @@ def _read_observations_header(fp):
 
     if prefix != b'HEADER RECORD*******OBS     HEADER RECORD!!!!!!!':
         raise ValueError('Invalid header: %r' % prefix)
-
-
-
-def _parse_field(raw, variable):
-    if variable.numeric:
-        return ibm_to_ieee(raw)
-    return raw.rstrip().decode('ISO-8859-1')
 
 
 
