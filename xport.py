@@ -49,14 +49,14 @@ def ibm_to_ieee(ibm):
     ibm = ibm.ljust(8, b'\x00')
 
     # parse the 64 bits of IBM float as one 8-byte unsigned long long
-    ulong = struct.unpack('>Q', ibm)[0]
+    ulong, = struct.unpack('>Q', ibm)
     # drop 1 bit for sign and 7 bits for exponent
     ieee = ulong & 0x00ffffffffffffff
 
     if ieee == 0:
         if ibm[0:1] == b'\x00':
             return 0.0
-        elif ibm[0:1] in '_.ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+        elif ibm[0:1] in b'_.ABCDEFGHIJKLMNOPQRSTUVWXYZ':
             return float('nan')
         else:
             raise ValueError('Neither zero nor NaN: %r' % ibm)
