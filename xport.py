@@ -264,16 +264,11 @@ def _read_observations(fp, variables):
     padding = b' '
     sentinel = padding * blocksize
 
-    # at the end of the file, the last block should be all padding
-    # in Python 3, looping over a bytes object gives integers, not bytes
-    # therefore, instead of ``all(c = padding for c in block)``
-    # we must write ``len(block) == block.count(padding)``
-
     count = 0
     while True:
         block = fp.read(blocksize)
         if len(block) < blocksize:
-            if not len(block) == block.count(padding):
+            if set(block) != set(padding):
                 raise ValueError('Incomplete record, {!r}'.format(block))
             remainder = count * blocksize % 80
             if remainder and len(block) != 80 - remainder:
@@ -281,7 +276,7 @@ def _read_observations(fp, variables):
             break
         elif block == sentinel:
             rest = fp.read()
-            if not len(rest) == rest.count(padding):
+            if set(rest) != set(padding):
                 raise NotImplementedError('Cannot read multiple members.')
             if blocksize + len(rest) != 80 - (count * blocksize % 80):
                 raise ValueError('Incorrect padding at end of file')
