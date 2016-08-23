@@ -167,6 +167,52 @@ def _parse_field(raw, variable):
 
 
 
+class reader(object):
+    '''
+    Deserialize ``fp`` (a ``.read()``-supporting file-like object containing
+    an XPT document) to a Python object.
+
+    The returned object is an iterator.
+    Each iteration returns an observation from the XPT file.
+
+        with open('example.xpt', 'rb') as f:
+            for row in xport.reader(f):
+                process(row)
+    '''
+
+    def __init__(self, fp):
+        self._fp = fp
+
+        version, os, created, modified = _read_header(fp)
+        self.version = version
+        self.os = os
+        self.created = created
+        self.modified = modified
+
+        namestr_size = _read_member_header(fp)[-1]
+        nvars = _read_namestr_header(fp)
+
+        self._variables = _read_namestr_records(fp, nvars, namestr_size)
+
+        _read_observations_header(fp)
+
+
+    @property
+    def fields(self):
+        return tuple(v.name for v in self._variables)
+
+
+    @property
+    def _row_size(self):
+        return sum(v.length for v in self._variables)
+
+
+    def __iter__(self):
+        for obs in _read_observations(self._fp, self._variables):
+            yield obs
+
+
+
 def _read_header(fp):
     # --- line 1 -------------
     fmt = '>48s32s'
@@ -355,52 +401,6 @@ def _read_observations(fp, variables):
         count += 1
         chunks = [block[v.position : v.position + v.size] for v in variables]
         yield Row._make(_parse_field(raw, v) for raw, v in zip(chunks, variables))
-
-
-
-class reader(object):
-    '''
-    Deserialize ``fp`` (a ``.read()``-supporting file-like object containing
-    an XPT document) to a Python object.
-
-    The returned object is an iterator.
-    Each iteration returns an observation from the XPT file.
-
-        with open('example.xpt', 'rb') as f:
-            for row in xport.reader(f):
-                process(row)
-    '''
-
-    def __init__(self, fp):
-        self._fp = fp
-        
-        version, os, created, modified = _read_header(fp)
-        self.version = version
-        self.os = os
-        self.created = created
-        self.modified = modified
-
-        namestr_size = _read_member_header(fp)[-1]
-        nvars = _read_namestr_header(fp)
-
-        self._variables = _read_namestr_records(fp, nvars, namestr_size)
-
-        _read_observations_header(fp)
-
-
-    @property
-    def fields(self):
-        return tuple(v.name for v in self._variables)
-
-
-    @property
-    def _row_size(self):
-        return sum(v.length for v in self._variables)
-
-
-    def __iter__(self):
-        for obs in _read_observations(self._fp, self._variables):
-            yield obs
 
 
 
