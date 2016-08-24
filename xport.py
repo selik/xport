@@ -100,6 +100,8 @@ def ibm_to_ieee(ibm):
     # right-shift when aligning the mantissa's first 1-bit
     exponent += shift + 1023
 
+    # IEEE: 1-bit sign, 11-bits exponent, 52-bits mantissa
+    # We didn't shift the sign bit, so it's already in the right spot
     ieee = sign | (exponent << 52) | mantissa
     return struct.unpack(">d", struct.pack(">Q", ieee))[0]
 
