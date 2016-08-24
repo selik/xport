@@ -8,13 +8,11 @@ Inspired by Jack Cushman's original 2012 version.
 '''
 
 from __future__ import division, print_function
-import argparse
 from collections import namedtuple
 from datetime import datetime
 from functools import partial
 import math
 import struct
-import sys
 
 
 __version__ = (0, 3, 6)
@@ -370,6 +368,11 @@ def to_dataframe(filename):
 ### Writing XPT                                                   ####
 ######################################################################
 
+import platform
+from io import StringIO
+
+
+
 class Overflow(ArithmeticError):
     'Number too large to express'
 
@@ -441,6 +444,10 @@ def ieee_to_ibm(ieee):
 ######################################################################
 ### Main                                                          ####
 ######################################################################
+
+import argparse
+import sys
+
 
 
 def parse_args(*args, **kwargs):
