@@ -130,19 +130,21 @@ class reader(object):
 
     def __init__(self, fp):
         self._fp = fp
+        try:
+            version, os, created, modified = self._read_header()
+            self.version = version
+            self.os = os
+            self.created = created
+            self.modified = modified
 
-        version, os, created, modified = self._read_header()
-        self.version = version
-        self.os = os
-        self.created = created
-        self.modified = modified
+            namestr_size = self._read_member_header()[-1]
+            nvars = self._read_namestr_header()
+            self._variables = self._read_namestr_records(nvars, namestr_size)
 
-        namestr_size = self._read_member_header()[-1]
-        nvars = self._read_namestr_header()
-
-        self._variables = self._read_namestr_records(nvars, namestr_size)
-
-        self._read_observations_header()
+            self._read_observations_header()
+        except UnicodeDecodeError:
+            msg = 'Expected a stream of bytes, got {stream}'
+            raise TypeError(msg.format(stream=fp))
 
 
     @property
