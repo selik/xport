@@ -11,6 +11,7 @@ from __future__ import division, print_function
 from collections import namedtuple
 from datetime import datetime
 from functools import partial
+from io import BytesIO
 import math
 import struct
 
@@ -354,6 +355,32 @@ class DictReader(object):
 
     def __iter__(self):
         return (row._asdict() for row in self.reader)
+
+
+
+def load(fp):
+    '''
+    Read and return rows from the XPT-format table stored in a file.
+
+    Deserialize ``fp`` (a ``.read()``-supporting file-like object
+    containing an XPT document) to a list of rows. As XPT files are
+    encoded in their own special format, the ``fp`` object must be in
+    bytes-mode. ``Row`` objects will be namedtuples with attributes
+    parsed from the XPT metadata.
+    '''
+    return list(reader(fp))
+
+
+
+def loads(s):
+    '''
+    Read and return rows from the given XPT data.
+
+    Deserialize ``s`` (a ``bytes`` instance containing an XPT
+    document) to a list of rows. ``Row`` objects will be namedtuples
+    with attributes parsed from the XPT metadata.
+    '''
+    return load(BytesIO(s))
 
 
 

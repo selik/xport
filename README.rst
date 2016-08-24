@@ -5,22 +5,25 @@ Xport
 Python reader for SAS XPORT data transport files (``*.xpt``).
 
 
+
 What's it for?
 ==============
 
-XPORT is the binary file format used by a bunch of `United States government
-agencies`_ for publishing data sets. It made a lot of sense if you were trying
-to read data files on your IBM mainframe back in 1988.
+XPORT is the binary file format used by a bunch of `United States
+government agencies`_ for publishing data sets. It made a lot of sense
+if you were trying to read data files on your IBM mainframe back in
+1988.
 
-The official `SAS specification for XPORT`_ is relatively straightforward.
-The hardest part is converting IBM-format floating point to IEEE-format,
-which the specification explains in detail.
+The official `SAS specification for XPORT`_ is relatively
+straightforward. The hardest part is converting IBM-format floating
+point to IEEE-format, which the specification explains in detail.
 
 There was an `update to the XPT specification`_ for SAS v8 and above.
 This module *has not yet been updated* to work with the new version.
-However, if you're using SAS v8+, you're probably not using XPT format.
-The changes to the format appear to be trivial changes to the metadata,
-but this module's current error-checking will raise a ``ValueError``.
+However, if you're using SAS v8+, you're probably not using XPT
+format. The changes to the format appear to be trivial changes to the
+metadata, but this module's current error-checking will raise a
+``ValueError``.
 
 .. _United States government agencies: https://www.google.com/search?q=site:.gov+xpt+file
 
@@ -30,10 +33,11 @@ but this module's current error-checking will raise a ``ValueError``.
 
 
 
-How do I use it?
-================
+Reading XPT
+===========
 
-This module mimics the ``csv`` module of the standard library
+This module mimics the ``csv`` module of the standard library for
+iterating over rows.
 
 .. code:: python
 
@@ -49,7 +53,20 @@ unusual binary format, you should open them using mode ``'rb'``.
 
 
 
-For convenient conversion to a `NumPy`_ array or `Pandas`_ dataframe, you can use ``to_numpy`` and ``to_dataframe``.
+This module also provides ``load`` and ``loads`` functions, similar to
+modules like ``json`` and ``pickle``, for reading the XPT all at once
+into a list of rows.
+
+.. code:: python
+
+    import xport
+    with open('example.xpt', 'rb') as f:
+        rows = load(f)
+
+
+
+For convenient conversion to a `NumPy`_ array or `Pandas`_ dataframe,
+you can use ``to_numpy`` and ``to_dataframe``.
 
 .. code:: python
 
@@ -83,17 +100,14 @@ file to CSV (comma-separated values) file.::
 
 
 
-Random access to records
-========================
-
-If you want to access specific records, you should either consume the reader in
-a ``list`` or use one of ``itertools``
+If you want to access specific records, you should use the ``load``
+function to gather the rows in a list or use one of ``itertools``
 recipes_ for quickly consuming and throwing away unncessary elements.
 
 .. code:: python
 
     # Collect all the records in a list for random access
-    rows = list(xport.reader(f)))
+    rows = load(f)
 
     # Select only record 42
     from itertools import islice
