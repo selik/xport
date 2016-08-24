@@ -16,10 +16,17 @@ The official `SAS specification for XPORT`_ is relatively straightforward.
 The hardest part is converting IBM-format floating point to IEEE-format,
 which the specification explains in detail.
 
+There was an `update to the XPT specification`_ for SAS v8 and above.
+This module *has not yet been updated* to work with the new version.
+However, if you're using SAS v8+, you're probably not using XPT format.
+The changes to the format appear to be trivial changes to the metadata,
+but this module's current error-checking will raise a ``ValueError``.
 
 .. _United States government agencies: https://www.google.com/search?q=site:.gov+xpt+file
 
-.. _SAS specification for XPORT: http://support.sas.com/techsup/technote/ts140.html
+.. _SAS specification for XPORT: http://support.sas.com/techsup/technote/ts140.pdf
+
+.. _update to the XPT specification: https://support.sas.com/techsup/technote/ts140_2.pdf
 
 
 
