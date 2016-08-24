@@ -9,15 +9,12 @@ Inspired by Jack Cushman's original 2012 version.
 
 from __future__ import division, print_function
 import argparse
-import collections
-import contextlib
+from collections import namedtuple
 from datetime import datetime
 from functools import partial
+import math
 import struct
 import sys
-
-import math
-import re
 
 
 __version__ = (0, 3, 6)
@@ -41,16 +38,16 @@ class Underflow(ArithmeticError):
 
 
 
-Variable = collections.namedtuple('Variable', 'name numeric position size')
+Variable = namedtuple('Variable', 'name numeric position size')
 
 
 
 def parse_date(timestring):
     '''
-    Parse date from XPT formatted string (ex. "16FEB11:10:07:55")
+    Parse date from XPT formatted string (ex. '16FEB11:10:07:55')
     '''
     text = timestring.decode('ascii')
-    return datetime.strptime(text, "%d%b%y:%H:%M:%S")
+    return datetime.strptime(text, '%d%b%y:%H:%M:%S')
 
 
 
@@ -371,7 +368,7 @@ class reader(object):
 
 
     def _read_observations(self, variables):
-        Row = collections.namedtuple('Row', [v.name for v in variables])
+        Row = namedtuple('Row', [v.name for v in variables])
 
         blocksize = sum(v.size for v in variables)
         padding = b' '
@@ -429,6 +426,8 @@ def to_dataframe(filename):
     with open(filename, 'rb') as f:
         xptfile = reader(f)
         return pd.DataFrame(list(xptfile), columns=xptfile.fields)
+
+
 
 
 
