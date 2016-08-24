@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import xport
+
 try:
     from setuptools import setup
 except ImportError:
@@ -11,7 +13,7 @@ with open('README.rst') as f:
 
 setup(
     name='xport',
-    version='0.3.4',
+    version='.'.join(map(str, xport.__version__)),
 
     author='Michael Selik',
     author_email='michael.selik@gmail.com',
