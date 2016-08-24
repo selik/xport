@@ -23,20 +23,16 @@ __all__ = ['reader', 'DictReader']
 
 
 
-class Overflow(ArithmeticError):
-    'Number too large to express'
-
-class Underflow(ArithmeticError):
-    'Number too small to express, rounds to zero'
-
-
-
 # All "records" are 80 bytes long, padded if necessary.
 # Character data are ASCII format.
 # Integer data are IBM-style integer format.
 # Floating point data are IBM-style double format.
 
 
+
+######################################################################
+### Reading XPT                                                   ####
+######################################################################
 
 Variable = namedtuple('Variable', 'name numeric position size')
 
@@ -429,6 +425,22 @@ def to_dataframe(filename):
 
 
 
+######################################################################
+### Writing XPT                                                   ####
+######################################################################
+
+class Overflow(ArithmeticError):
+    'Number too large to express'
+
+class Underflow(ArithmeticError):
+    'Number too small to express, rounds to zero'
+
+
+
+
+######################################################################
+### Main                                                          ####
+######################################################################
 
 
 def parse_args(*args, **kwargs):
