@@ -20,7 +20,7 @@ import math
 import re
 
 
-__version__ = (0, 3, 5)
+__version__ = (0, 3, 6)
 
 __all__ = ['reader', 'DictReader']
 
@@ -436,7 +436,7 @@ def parse_args(*args, **kwargs):
     if sys.version_info < (3, 0):
         stdin = sys.stdin
     else:
-        stdin = sys.stdin.detach()
+        stdin = sys.stdin.buffer
 
     parser = argparse.ArgumentParser(description='Read SAS XPORT/XPT files.')
     parser.add_argument('input',
