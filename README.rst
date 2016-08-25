@@ -155,6 +155,21 @@ be assigned as 'x0', 'x1', 'x2', ..., 'xM'.
 
 
 
+To specify the column labels in ``'rows'`` mode, each row can be a
+mapping (such as a ``dict``) of the column labels to that row's
+values. Each row should have the same keys. Passing in rows as
+namedtuples, or any instance of a ``tuple`` that has a ``._fields``
+attribute, will set the column labels to the attribute names of the
+first row.
+
+.. code:: python
+
+    rows = [{'letters': 'a', 'numbers': 1}, {'letters': 'b', 'numbers': 2}]
+    with open('example.xpt', 'wb') as f:
+        dump(f, rows)
+
+
+
 The ``'columns'`` mode expects a mapping of labels (as string) to
 columns (as iterable) or an iterable of (label, column) pairs.
 
