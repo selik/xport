@@ -138,9 +138,9 @@ recipes_ for quickly consuming and throwing away unncessary elements.
 Writing XPT
 ===========
 
-This module mimics the ``json`` and ``pickle`` standard library
-modules in providing ``dump`` (to file) and ``dumps`` (to string)
-functions to transform Python objects into XPT file format.
+Similarly to the ``json`` and ``pickle`` modules, ``xport`` provides
+``dump`` (to file) and ``dumps`` (to string) functions to transform
+Python objects into XPT file format.
 
 The ``dump`` and ``dumps`` functions are in ``'rows'`` mode by default
 and expect an iterable of iterables, like a list of tuples. In this
@@ -151,7 +151,7 @@ be assigned as 'x0', 'x1', 'x2', ..., 'xM'.
 
     rows = [('a', 1), ('b', 2)]
     with open('example.xpt', 'wb') as f:
-        dumps(f, rows)
+        dump(f, rows)
 
 
 
