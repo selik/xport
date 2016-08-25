@@ -3,3 +3,4 @@ build/*
 *.pyc
 dist/*
 xport.egg-info/*
+README.html
