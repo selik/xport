@@ -16,7 +16,7 @@ import math
 import struct
 
 
-__version__ = (0, 6, 3)
+__version__ = (0, 6, 4)
 
 __all__ = ['Reader', 'DictReader',
            'load', 'loads',
@@ -431,12 +431,12 @@ def to_dataframe(filename):
 # column for that maximum length.
 
 from collections import OrderedDict
-
 try:
     from collections.abc import Mapping
 except ImportError:
     from collections import Mapping
 
+from itertools import tee
 try:
     from itertools import zip_longest
 except ImportError:
@@ -585,8 +585,9 @@ def dump(fp, data, mode='rows'):
             raise TypeError(msg.format(type=data.__class__.__name__))
 
         # extract column labels if rows are mappings or namedtuples
-        data = list(data)
-        firstrow = data[0]
+        it = iter(data)
+        data, duplicate = tee(it)
+        firstrow = next(duplicate)
         if isinstance(firstrow, Mapping):
             labels = list(firstrow.keys())
             data = (mapping.values() for mapping in data)
@@ -651,19 +652,25 @@ def dump(fp, data, mode='rows'):
     position = 0
     for label, column in columns.items():
         label = encode(label)
+
         # name must be exactly 8 bytes and usually is alphanumeric
         name = b'_'.join(re.findall(b'[A-Za-z0-9_]+', label))[:8].ljust(8)
         try:
             numeric = isinstance(column[0], Number)
         except IndexError:
             raise ValueError('Columns must have at least one element')
-        # encode as bytes before determining size
+
+        # encode as bytes
         _encode = partial(encode, missing=float('nan') if numeric else '')
         column[:] = list(map(_encode, column))
+
+        # standardize the size of the values
         size = max(map(len, column))
         if not numeric:
             column[:] = [s.ljust(size) for s in column]
+
         fields[label] = Variable(name, numeric, position, size)
+
         # increment position for next field, after recording current position
         position += size
 
