@@ -216,10 +216,6 @@ class TestDumpColumns(unittest.TestCase):
                             '''.split()}
         self.roundtrip(columns)
 
-    # def test_different_row_lengths(self):
-    #     with self.assertRaises(RuntimeError):
-    #         pass
-
 
 
 class TestDumpRows(unittest.TestCase):
@@ -233,10 +229,6 @@ class TestDumpRows(unittest.TestCase):
                 ('universe', 3.14),
                 ('everything', 42)]
         self.roundtrip(rows)
-
-    # def test_different_column_lengths(self):
-    #     with self.assertRaises(RuntimeError):
-    #         pass
 
 
 

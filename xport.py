@@ -436,6 +436,7 @@ try:
 except ImportError:
     from collections import Mapping
 
+from itertools import zip_longest
 from numbers import Number
 import platform
 import re
@@ -458,10 +459,12 @@ def format_date(dt):
 
 
 
-def encode(value):
+def encode(value, missing=None):
     '''
     Convert a Python object (string or number) to bytes in XPT format
     '''
+    if value is None and missing is not None:
+        return missing
     if isinstance(value, bytes):
         return value
     if isinstance(value, str):
@@ -565,18 +568,21 @@ def dump(fp, data, mode='rows'):
     changed and may create invalid XPT files if they were encoded
     inappropriately.
     '''
+    if not data:
+        raise ValueError('must have at least one {}'.format(mode[:-1]))
+
     if mode == 'columns':
         columns = OrderedDict(data)
-
     if mode == 'rows':
         if isinstance(data, Mapping):
             msg = 'expected data as rows, got {type!r}' \
                   "; did you intend mode='columns'?"
             raise TypeError(msg.format(type=data.__class__.__name__))
-        columns = OrderedDict(('x%d' % i, column) for i, column in enumerate(zip(*data)))
+        columns = OrderedDict(('x%d' % i, column) for i, column in enumerate(zip_longest(*data)))
 
     # make a copy to avoid accidentally mutating the passed-in data
     columns = OrderedDict([(label, list(column)) for label, column in columns.items()])
+
 
 
     ### headers ###
@@ -634,7 +640,8 @@ def dump(fp, data, mode='rows'):
         except IndexError:
             raise ValueError('Columns must have at least one element')
         # encode as bytes before determining size
-        column[:] = list(map(encode, column))
+        _encode = partial(encode, missing=float('nan') if numeric else '')
+        column[:] = list(map(_encode, column))
         size = max(map(len, column))
         if not numeric:
             column[:] = [s.ljust(size) for s in column]
