@@ -431,12 +431,17 @@ def to_dataframe(filename):
 # column for that maximum length.
 
 from collections import OrderedDict
+
 try:
     from collections.abc import Mapping
 except ImportError:
     from collections import Mapping
 
-from itertools import zip_longest
+try:
+    from itertools import zip_longest
+except ImportError:
+    from itertools import izip_longest as zip_longest
+
 from numbers import Number
 import platform
 import re
@@ -634,7 +639,7 @@ def dump(fp, data, mode='rows'):
     for label, column in columns.items():
         label = encode(label)
         # name must be exactly 8 bytes and usually is alphanumeric
-        name = b'_'.join(re.findall(rb'[A-Za-z0-9_]+', label))[:8].ljust(8)
+        name = b'_'.join(re.findall(b'[A-Za-z0-9_]+', label))[:8].ljust(8)
         try:
             numeric = isinstance(column[0], Number)
         except IndexError:
