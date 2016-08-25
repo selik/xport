@@ -16,7 +16,7 @@ import math
 import struct
 
 
-__version__ = (0, 4, 0)
+__version__ = (0, 5, 0)
 
 __all__ = ['reader', 'DictReader']
 
@@ -185,7 +185,7 @@ class reader(object):
         version, os, _, created = tokens[3:]
 
         if prefix != (b'SAS', b'SAS', b'SASLIB'):
-            raise ValueError('Invalid header: %r' % prefix)
+            raise ValueError('Invalid header: %r' % (prefix,))
 
         version = tuple(int(s) for s in version.split(b'.'))
         created = parse_date(created)
@@ -336,7 +336,7 @@ class reader(object):
                 break
             elif block == sentinel:
                 rest = self._fp.read()
-                if set(rest) != set(padding):
+                if rest and set(rest) != set(padding):
                     raise NotImplementedError('Cannot read multiple members.')
                 if blocksize + len(rest) != 80 - (count * blocksize % 80):
                     raise ValueError('Incorrect padding at end of file')
@@ -409,8 +409,17 @@ def to_dataframe(filename):
 ### Writing XPT                                                   ####
 ######################################################################
 
+# Unfortunately, writing XPT files cannot use the same API as the CSV
+# module, because XPT requires every row to be the same size in bytes,
+# regardless of the data stored in that particular row. This means
+# that if there are any text columns, we must find the row with the
+# longest possible text string for that column and size the entire
+# column for that maximum length.
+
+from collections import OrderedDict
+from numbers import Number
 import platform
-from io import StringIO
+import re
 
 
 
@@ -419,6 +428,26 @@ class Overflow(ArithmeticError):
 
 class Underflow(ArithmeticError):
     'Number too small to express, rounds to zero'
+
+
+
+def format_date(dt):
+    '''
+    Format XPT datetime string (bytes) from Python datetime object
+    '''
+    return dt.strftime('%d%b%y:%H:%M:%S').upper().encode('ISO-8859-1')
+
+
+
+def encode(value):
+    '''
+    Convert a Python object (string or number) to bytes in XPT format
+    '''
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, str):
+        return value.encode('ISO-8859-1')
+    return ieee_to_ibm(value)
 
 
 
@@ -478,6 +507,186 @@ def ieee_to_ibm(ieee):
 
     # We lose some precision, but who said floats were perfect?
     return struct.pack('>Q', sign | exponent | mantissa)
+
+
+
+def dump(fp, *args, **kwargs):
+    '''
+    Write columns in XPT-format to the open file object ``fp``.
+
+    The columns may be specified as a mapping of labels to columns, an
+    iterable of (label, column) pairs, or as keyword arguments -- the
+    key being the label and the value being the column.
+
+        dump(fp, dict(zip(labels, columns))) -> None
+        dump(fp, zip(labels, columns)) -> None
+        dump(fp, label_a=column_a, label_b=column_b) -> None
+
+    The columns must each be the same length. The values within a
+    column must be the same type, either numeric or text. Float NaN is
+    acceptable, but ``None`` is not permitted.
+
+    Column labels are restricted to 40 characters. The XPT format also
+    requires a separate column "name" that is restricted to 8
+    characters. This name will be automatically created based on the
+    column label -- the first 8 characters, non-alphabet characters
+    replaced with underscores, padded to 8 characters if necessary.
+    All text strings, including column labels, will be converted to
+    bytes using the ISO-8859-1 encoding. Any byte strings will not be
+    changed and may create invalid XPT files if they were encoded
+    inappropriately.
+    '''
+    columns = OrderedDict(*args, **kwargs)
+
+
+    ### headers ###
+
+    sas_version = b'99999999' # maybe better to pretend v6.06 ?
+    os_version = encode(platform.system())[:8].ljust(8)
+    created = format_date(datetime.now())
+
+    # 1st real header record
+    fp.write(b'HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!'
+             b'000000000000000000000000000000  '
+             b'SAS     '
+             b'SAS     '
+             b'SASLIB  '
+             + sas_version
+             + os_version
+             + b'                        '
+             + created)
+
+    # 2nd real header record
+    fp.write(created + 64 * b' ')
+
+    # Member header record
+    fp.write(b'HEADER RECORD*******MEMBER  HEADER RECORD!!!!!!!'
+             b'000000000000000001600000000140  '
+             b'HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!'
+             b'000000000000000000000000000000  ')
+
+    # Member header data
+    fp.write(b'SAS     '
+             b'dataset ' # dataset name
+             b'SASDATA '
+             + sas_version
+             + os_version
+             + 24 * b' '
+             + created)
+
+    # 2nd member header record
+    fp.write(created
+             + 16 * b' '
+             + b'dataset'.ljust(40) # datset label
+             + b'table'.ljust(8)) # dataset type (What is this?)
+
+
+    ### field metatdata ###
+
+    fields = OrderedDict()
+    position = 0
+    for label, column in columns.items():
+        label = encode(label)
+        # name must be exactly 8 bytes and usually is alphanumeric
+        name = b'_'.join(re.findall(rb'[A-Za-z0-9_]+', label))[:8].ljust(8)
+        try:
+            numeric = isinstance(column[0], Number)
+        except IndexError:
+            raise ValueError('Columns must have at least one element')
+        # encode as bytes before determining size
+        column[:] = list(map(encode, column))
+        size = max(map(len, column))
+        if not numeric:
+            column[:] = [s.ljust(size) for s in column]
+        fields[label] = Variable(name, numeric, position, size)
+        # increment position for next field, after recording current position
+        position += size
+
+    # Namestr header record
+    fp.write(b'HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!'
+             b'000000'
+             + encode(str(len(fields)).zfill(4))
+             + b'00000000000000000000  ')
+
+    # Namestrs, one for each column
+    for i, (label, (name, numeric, position, size)) in enumerate(fields.items()):
+        fmt = '>hhhh8s40s8shhh2s8shhl52s'
+        data = (1 if numeric else 2, # variable type
+                0, # hash of name, always 0
+                size,
+                i,
+                name,
+                label[:40].ljust(40),
+                b'        ', # name of format
+                0, # format field length or 0
+                0, # format number of decimals
+                0, # 0 for left justified, 1 for right justified
+                b'\x00\x00', # two unused bytes
+                b'        ', # name of input format
+                0, # informat length
+                0, # informat number of decimals
+                position,
+                b'\x00' * 52, # spec says "remaining fields are irrelevant"
+                )
+        fp.write(struct.pack(fmt, *data))
+
+    # blank padding after the last namestr to ensure 80 bytes per line
+    remainder = len(fields) * 140 % 80
+    if remainder:
+        fp.write(b' ' * (80 - remainder))
+
+
+    ### data ###
+
+    # Observation header
+    fp.write(b'HEADER RECORD*******OBS     HEADER RECORD!!!!!!!'
+             b'000000000000000000000000000000  ')
+
+    # Data records
+    for row in zip(*columns.values()):
+        for cell in row:
+            fp.write(cell)
+
+    # blank padding after the last record to ensure 80 bytes per line
+    position = fp.tell()
+    remainder = position % 80
+    if remainder:
+        fp.write(b' ' * (80 - remainder))
+
+    fp.flush()
+
+
+
+def dumps(*args, **kwargs):
+    '''
+    Return the XPT-format representation of columns as a bytes object.
+
+    The columns may be specified as a mapping of labels to columns, an
+    iterable of (label, column) pairs, or as keyword arguments -- the
+    key being the label and the value being the column.
+
+        dumps(dict(zip(labels, columns))) -> bytes
+        dumps(zip(labels, columns)) -> bytes
+        dumps(label_a=column_a, label_b=column_b) -> bytes
+
+    The columns must each be the same length. The values within a
+    column must be the same type, either numeric or text. Float NaN is
+    acceptable, but ``None`` is not permitted.
+
+    Column labels are restricted to 40 characters. The XPT format also
+    requires a separate column "name" that is restricted to 8
+    characters. This name will be automatically created based on the
+    column label -- the first 8 characters, non-alphabet characters
+    replaced with underscores, padded to 8 characters if necessary.
+    All text strings, including column labels, will be converted to
+    bytes using the ISO-8859-1 encoding. Any byte strings will not be
+    changed and may create invalid XPT files if they were encoded
+    inappropriately.
+    '''
+    fp = BytesIO()
+    dump(fp, *args, **kwargs)
+    fp.seek(0)
+    return fp.read()
 
 
 

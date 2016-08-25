@@ -121,14 +121,55 @@ recipes_ for quickly consuming and throwing away unncessary elements.
 
 
 
+Writing XPT
+===========
+
+This module mimics the ``json`` and ``pickle`` standard library
+modules in providing ``dump`` and ``dumps`` functions to transform
+Python objects into XPT file format.
+
+.. code:: python
+
+    columns = {'numbers': [1, 3.14, 42], 'text': ['life', 'universe', 'everything']}
+    with open('answers.xpt', 'wb') as f:
+        dump(f, columns)
+
+
+
+If you have unlabeled rows, one way to convert them to labeled columns
+is to assign labels as whole numbers starting from 0.
+
+.. code:: python
+
+    rows = [('a', 1), ('b', 2)]
+    columns = {str(label): column for label, column in enumerate(zip(*rows))}
+
+    with open('example.xpt', 'wb') as f:
+        dump(f, columns)
+
+
+
+Column labels are restricted to 40 characters. Column names are
+restricted to 8 characters and will be automatically created based on
+the column label -- the first 8 characters, non-alphabet characters
+replaced with underscores, padded to 8 characters if necessary. All
+text strings, including column labels, will be converted to bytes
+using the ISO-8859-1 encoding. Any byte strings will not be changed
+and may create invalid XPT files if they were encoded inappropriately.
+
+Unfortunately, writing XPT files cannot cleanly mimic the ``csv``
+module, because we must examine all rows before writing any rows to
+correctly write the XPT file headers.
+
+
+
 Recent changes
 ==============
 
-* Improved the API.
+* Added capability to write XPT files
 
-* Fixed handling of NaNs.
-
-* Fixed piping the file from ``stdin`` in Python 3.
+* Added ``load`` and ``loads`` functions to match the new ``dump`` and
+  ``dumps`` functions
 
 
 Authors
