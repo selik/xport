@@ -6,6 +6,7 @@ import csv
 import glob
 import math
 import os
+import string
 import unittest
 import xport
 
@@ -39,7 +40,7 @@ class TestCSVs(unittest.TestCase):
 
             with open(csvfile) as fcsv, open(xptfile, 'rb') as fxpt:
                 csvreader = csv.reader(fcsv)
-                xptreader = xport.reader(fxpt)
+                xptreader = xport.Reader(fxpt)
 
                 self.assertEqual(tuple(next(csvreader)), xptreader.fields)
 
@@ -53,7 +54,7 @@ class TestStringsDataset(unittest.TestCase):
 
     def test_header(self):
         with open('test/data/strings.xpt', 'rb') as f:
-            reader = xport.reader(f)
+            reader = xport.Reader(f)
             x, = reader._variables
 
             assert reader.fields == ('X',)
@@ -66,12 +67,12 @@ class TestStringsDataset(unittest.TestCase):
 
     def test_length(self):
         with open('test/data/strings.xpt', 'rb') as f:
-            assert len(list(xport.reader(f))) == 2
+            assert len(list(xport.Reader(f))) == 2
 
 
     def test_values(self):
         with open('test/data/strings.xpt', 'rb') as f:
-            it = (row.X for row in xport.reader(f))
+            it = (row.X for row in xport.Reader(f))
             assert next(it) == ''.join(chr(i) for i in range(1, 101))
             assert next(it) == ''.join(chr(i) for i in range(101,128))
 
@@ -83,7 +84,7 @@ class TestKnownValuesDataset(unittest.TestCase):
 
     def test_header(self):
         with open('test/data/known_values.xpt', 'rb') as f:
-            reader = xport.reader(f)
+            reader = xport.Reader(f)
             x, = reader._variables
 
             assert reader.fields == ('X',)
@@ -96,12 +97,12 @@ class TestKnownValuesDataset(unittest.TestCase):
 
     def test_length(self):
         with open('test/data/known_values.xpt', 'rb') as f:
-            assert len(list(xport.reader(f))) == 2123
+            assert len(list(xport.Reader(f))) == 2123
 
 
     def test_values(self):
         with open('test/data/known_values.xpt', 'rb') as f:
-            it = (row.X for row in xport.reader(f))
+            it = (row.X for row in xport.Reader(f))
             for value in [float(e) for e in range(-1000, 1001)]:
                 assert value == next(it)
             for value in [math.pi ** e for e in range(-30, 31)]:
@@ -116,7 +117,7 @@ class TestMultipleColumnsDataset(unittest.TestCase):
 
     def test_header(self):
         with open('test/data/multi.xpt', 'rb') as f:
-            reader = xport.reader(f)
+            reader = xport.Reader(f)
             x, y = reader._variables
 
             assert reader.fields == ('X', 'Y')
@@ -134,7 +135,7 @@ class TestMultipleColumnsDataset(unittest.TestCase):
 
     def test_length(self):
         with open('test/data/multi.xpt', 'rb') as f:
-            assert len(list(xport.reader(f))) == 20
+            assert len(list(xport.Reader(f))) == 20
 
 
     def test_values(self):
@@ -143,7 +144,7 @@ class TestMultipleColumnsDataset(unittest.TestCase):
             the true excitement of a large squirrel predicting the weather.
             '''.split()
         with open('test/data/multi.xpt', 'rb') as f:
-            for (i, s), (x, y) in zip(enumerate(strings, 1), xport.reader(f)):
+            for (i, s), (x, y) in zip(enumerate(strings, 1), xport.Reader(f)):
                 assert (x, y) == (s, i)
 
 
@@ -194,6 +195,46 @@ class TestIEEEtoIBM(unittest.TestCase):
         for i in range(-10, 10):
             i /= 1e6
             self.assertEqual(i, self.roundtrip(i))
+
+
+
+class TestDumpColumns(unittest.TestCase):
+
+    def roundtrip(self, columns):
+        duplicate = xport.loads(xport.dumps(mapping, mode='columns'))
+        for label, column in mapping.items():
+            for a, b in zip(column, duplicate[label]):
+                self.assertEqual(a, b)
+
+    def test_roundtrip_dump_load(self):
+        columns = {'whole': list(range(10)),
+                   'fraction': [i ** -0.5 for i in range(1, 11)],
+                   'letters': list(string.ascii_letters[:10]),
+                   'words': '''apple banana cantaloupe domino elephant
+                               frog guantanamo hooli igloo jarjar
+                            '''.split()}
+        self.roundtrip(columns)
+
+    def test_different_row_lengths(self):
+        with self.assertRaises(RuntimeError):
+            pass
+
+
+
+class TestDumpRows(unittest.TestCase):
+
+    def roundtrip(self, rows):
+        duplicate = xport.loads(xport.dumps(rows))
+        self.assertEqual(rows, duplicate)
+
+    def test_roundtrip_dump_load(self):
+        rows = None
+        self.roundtrip(rows)
+
+    def test_different_column_lengths(self):
+        with self.assertRaises(RuntimeError):
+            pass
+
 
 
 if __name__ == '__main__':
