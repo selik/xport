@@ -18,7 +18,9 @@ import struct
 
 __version__ = (0, 6, 0)
 
-__all__ = ['reader', 'DictReader']
+__all__ = ['Reader', 'DictReader',
+           'load', 'loads',
+           'dump', 'dumps']
 
 
 
@@ -402,7 +404,7 @@ def to_numpy(filename):
     '''
     import numpy as np
     with open(filename, 'rb') as f:
-        return np.vstack(reader(f))
+        return np.vstack(Reader(f))
 
 
 
@@ -412,7 +414,7 @@ def to_dataframe(filename):
     '''
     import pandas as pd
     with open(filename, 'rb') as f:
-        xptfile = reader(f)
+        xptfile = Reader(f)
         return pd.DataFrame(list(xptfile), columns=xptfile.fields)
 
 
