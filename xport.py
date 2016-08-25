@@ -548,8 +548,6 @@ def dump(fp, data, mode='rows'):
     instance of tuple that has a ``._fields`` attribute), the column labels
     will be inferred from the fields of that row.
 
-    The rows should be an i
-
     Alternately, the data may be specified as columns: either as a
     mapping of labels to columns, an iterable of (label, column)
     pairs, or as keyword arguments -- the key being the label and the
