@@ -200,8 +200,9 @@ class TestIEEEtoIBM(unittest.TestCase):
 
 class TestDumpColumns(unittest.TestCase):
 
-    def roundtrip(self, columns):
-        duplicate = xport.loads(xport.dumps(mapping, mode='columns'))
+    def roundtrip(self, mapping):
+        xpt = xport.dumps(mapping, mode='columns')
+        duplicate = xport.loads(xpt, mode='columns')
         for label, column in mapping.items():
             for a, b in zip(column, duplicate[label]):
                 self.assertEqual(a, b)
@@ -215,9 +216,9 @@ class TestDumpColumns(unittest.TestCase):
                             '''.split()}
         self.roundtrip(columns)
 
-    def test_different_row_lengths(self):
-        with self.assertRaises(RuntimeError):
-            pass
+    # def test_different_row_lengths(self):
+    #     with self.assertRaises(RuntimeError):
+    #         pass
 
 
 
@@ -228,12 +229,14 @@ class TestDumpRows(unittest.TestCase):
         self.assertEqual(rows, duplicate)
 
     def test_roundtrip_dump_load(self):
-        rows = None
+        rows = [('life', 1),
+                ('universe', 3.14),
+                ('everything', 42)]
         self.roundtrip(rows)
 
-    def test_different_column_lengths(self):
-        with self.assertRaises(RuntimeError):
-            pass
+    # def test_different_column_lengths(self):
+    #     with self.assertRaises(RuntimeError):
+    #         pass
 
 
 
