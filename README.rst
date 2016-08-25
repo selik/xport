@@ -36,32 +36,46 @@ metadata, but this module's current error-checking will raise a
 Reading XPT
 ===========
 
-This module mimics the ``csv`` module of the standard library for
-iterating over rows.
+This module mimics the ``json`` and ``pickle`` modules of the standard
+library, providing ``load`` and ``loads`` functions for reading data
+from a file-like object and from a string object, respectively.
 
 .. code:: python
 
-    import xport
     with open('example.xpt', 'rb') as f:
-        for row in xport.reader(f):
+        rows = xport.load(f)
+
+
+
+Each row will be a namedtuple, with an attribute for each field in the
+dataset. Values in the row will be either a unicode string or a float,
+as specified by the XPT file metadata. Note that since XPT files are
+in an unusual binary format, you should open them using mode ``'rb'``.
+
+
+
+The ``load`` and ``loads`` functions can also return the data as
+columns rather than rows. The columns will be an ``OrderedDict``
+mapping the column labels as strings to the column values as lists of
+either strings or floats.
+
+.. code:: python
+
+    with open('example.xpt', 'rb') as f:
+        mapping = xport.load(f, mode='columns')
+
+
+
+This module also offers reading behavior similar to the standard
+library ``csv`` module, for iterating over the data one row at a time,
+rather than loading all rows at once. Note that ``xport.Reader`` is
+capitalized, unlike ``csv.reader``.
+
+.. code:: python
+
+    with open('example.xpt', 'rb') as f:
+        for row in xport.Reader(f):
             print row
-
-Each ``row`` will be a namedtuple, with an attribute for each field in the
-dataset. Values in the row will be either a unicode string or a float, as
-specified by the XPT file metadata. Note that since XPT files are in an
-unusual binary format, you should open them using mode ``'rb'``.
-
-
-
-This module also provides ``load`` and ``loads`` functions, similar to
-modules like ``json`` and ``pickle``, for reading the XPT all at once
-into a list of rows.
-
-.. code:: python
-
-    import xport
-    with open('example.xpt', 'rb') as f:
-        rows = load(f)
 
 
 
@@ -79,17 +93,17 @@ you can use ``to_numpy`` and ``to_dataframe``.
 
 
 
-The ``reader`` object has a handful of metadata attributes:
+The ``Reader`` object has a handful of metadata attributes:
 
-* ``reader.fields`` -- Names of the fields in each observation.
+* ``Reader.fields`` -- Names of the fields in each observation.
 
-* ``reader.version`` -- SAS version number used to create the XPT file.
+* ``Reader.version`` -- SAS version number used to create the XPT file.
 
-* ``reader.os`` -- Operating system used to create the XPT file.
+* ``Reader.os`` -- Operating system used to create the XPT file.
 
-* ``reader.created`` -- Date and time that the XPT file was created.
+* ``Reader.created`` -- Date and time that the XPT file was created.
 
-* ``reader.modified`` -- Date and time that the XPT file was last modified.
+* ``Reader.modified`` -- Date and time that the XPT file was last modified.
 
 
 
@@ -111,11 +125,11 @@ recipes_ for quickly consuming and throwing away unncessary elements.
 
     # Select only record 42
     from itertools import islice
-    row = next(islice(xport.reader(f), 42, None))
+    row = next(islice(xport.Reader(f), 42, None))
 
     # Select only the last 42 records
     from collections import deque
-    rows = deque(xport.reader(f), maxlen=42)
+    rows = deque(xport.Reader(f), maxlen=42)
 
 .. _recipes: https://docs.python.org/2/library/itertools.html#recipes
 
@@ -125,27 +139,37 @@ Writing XPT
 ===========
 
 This module mimics the ``json`` and ``pickle`` standard library
-modules in providing ``dump`` and ``dumps`` functions to transform
-Python objects into XPT file format.
+modules in providing ``dump`` (to file) and ``dumps`` (to string)
+functions to transform Python objects into XPT file format.
 
-.. code:: python
-
-    columns = {'numbers': [1, 3.14, 42], 'text': ['life', 'universe', 'everything']}
-    with open('answers.xpt', 'wb') as f:
-        dump(f, columns)
-
-
-
-If you have unlabeled rows, one way to convert them to labeled columns
-is to assign labels as whole numbers starting from 0.
+The ``dump`` and ``dumps`` functions are in ``'rows'`` mode by default
+and expect an iterable of iterables, like a list of tuples. In this
+case, the column labels have not been specified and will automatically
+be assigned as 'x0', 'x1', 'x2', ..., 'xM'.
 
 .. code:: python
 
     rows = [('a', 1), ('b', 2)]
-    columns = {str(label): column for label, column in enumerate(zip(*rows))}
-
     with open('example.xpt', 'wb') as f:
-        dump(f, columns)
+        dumps(f, rows)
+
+
+
+The ``'columns'`` mode expects a mapping of labels (as string) to
+columns (as iterable) or an iterable of (label, column) pairs.
+
+.. code:: python
+
+    mapping = {'numbers': [1, 3.14, 42],
+               'text': ['life', 'universe', 'everything']}
+
+    # as a mapping of labels to columns
+    with open('answers.xpt', 'wb') as f:
+        dump(f, mapping, mode='columns')
+
+    # as an iterable of (label, column) pairs
+    with open('answers.xpt', 'wb') as f:
+        dump(f, mapping.items(), mode='columns')
 
 
 

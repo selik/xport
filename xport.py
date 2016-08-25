@@ -16,7 +16,7 @@ import math
 import struct
 
 
-__version__ = (0, 5, 0)
+__version__ = (0, 6, 0)
 
 __all__ = ['reader', 'DictReader']
 
@@ -116,7 +116,7 @@ def _parse_field(raw, variable):
 
 
 
-class reader(object):
+class Reader(object):
     '''
     Deserialize ``self._fp`` (a ``.read()``-supporting file-like object containing
     an XPT document) to a Python object.
@@ -287,6 +287,11 @@ class reader(object):
         position = tokens[-2]
 
         name = name.decode('ascii').rstrip()
+        # try to make the name a valid nameduple field
+        # must be a valid identifier that does not start with underscore
+        if name.isnumeric():
+            name = 'x' + name
+
         is_numeric = True if is_numeric == 1 else False
 
         if is_numeric and (length < 2 or length > 8):
@@ -358,7 +363,7 @@ class DictReader(object):
 
 
 
-def load(fp):
+def load(fp, mode='rows'):
     '''
     Read and return rows from the XPT-format table stored in a file.
 
@@ -368,11 +373,18 @@ def load(fp):
     bytes-mode. ``Row`` objects will be namedtuples with attributes
     parsed from the XPT metadata.
     '''
-    return list(reader(fp))
+    reader = Reader(fp)
+    if mode == 'rows':
+        return list(reader)
+    if mode == 'columns':
+        return dict(zip(reader.fields, zip(*reader)))
+
+    msg = "expected mode 'rows' or 'columns', got {}"
+    raise ValueError(msg.format(mode))
 
 
 
-def loads(s):
+def loads(s, mode='rows'):
     '''
     Read and return rows from the given XPT data.
 
@@ -380,7 +392,7 @@ def loads(s):
     document) to a list of rows. ``Row`` objects will be namedtuples
     with attributes parsed from the XPT metadata.
     '''
-    return load(BytesIO(s))
+    return load(BytesIO(s), mode)
 
 
 
@@ -417,6 +429,11 @@ def to_dataframe(filename):
 # column for that maximum length.
 
 from collections import OrderedDict
+try:
+    from collections.abc import Mapping
+except ImportError:
+    from collections import Mapping
+
 from numbers import Number
 import platform
 import re
@@ -510,13 +527,23 @@ def ieee_to_ibm(ieee):
 
 
 
-def dump(fp, *args, **kwargs):
+def dump(fp, data, mode='rows'):
     '''
-    Write columns in XPT-format to the open file object ``fp``.
+    Write rows in XPT-format to the open file object ``fp``.
 
-    The columns may be specified as a mapping of labels to columns, an
-    iterable of (label, column) pairs, or as keyword arguments -- the
-    key being the label and the value being the column.
+        dump(fp, rows) -> None
+
+    In this case, ``rows`` should be an iterable of iterables, such as
+    a list of tuples. If the first row is a namedtuple (or any
+    instance of tuple that has a ``._fields`` attribute), the column labels
+    will be inferred from the fields of that row.
+
+    The rows should be an i
+
+    Alternately, the data may be specified as columns: either as a
+    mapping of labels to columns, an iterable of (label, column)
+    pairs, or as keyword arguments -- the key being the label and the
+    value being the column.
 
         dump(fp, dict(zip(labels, columns))) -> None
         dump(fp, zip(labels, columns)) -> None
@@ -536,12 +563,23 @@ def dump(fp, *args, **kwargs):
     changed and may create invalid XPT files if they were encoded
     inappropriately.
     '''
-    columns = OrderedDict(*args, **kwargs)
+    if mode == 'columns':
+        columns = OrderedDict(data)
+
+    if mode == 'rows':
+        if isinstance(data, Mapping):
+            msg = 'expected data as rows, got {type!r}' \
+                  "; did you intend mode='columns'?"
+            raise TypeError(msg.format(type=data.__class__.__name__))
+        columns = OrderedDict(('x%d' % i, column) for i, column in enumerate(zip(*data)))
+
+    # make a copy to avoid accidentally mutating the passed-in data
+    columns = OrderedDict([(label, list(column)) for label, column in columns.items()])
 
 
     ### headers ###
 
-    sas_version = b'99999999' # maybe better to pretend v6.06 ?
+    sas_version = b'6.06    ' # the version in the SAS XPT specification I read
     os_version = encode(platform.system())[:8].ljust(8)
     created = format_date(datetime.now())
 
@@ -657,7 +695,7 @@ def dump(fp, *args, **kwargs):
 
 
 
-def dumps(*args, **kwargs):
+def dumps(data, mode='rows'):
     '''
     Return the XPT-format representation of columns as a bytes object.
 
@@ -684,7 +722,7 @@ def dumps(*args, **kwargs):
     inappropriately.
     '''
     fp = BytesIO()
-    dump(fp, *args, **kwargs)
+    dump(fp, data, mode)
     fp.seek(0)
     return fp.read()
 
@@ -719,9 +757,9 @@ def parse_args(*args, **kwargs):
 if __name__ == '__main__':
     args = parse_args()
     with args.input:
-        xpt = reader(args.input)
-        print(','.join(xpt.fields))
-        for row in xpt:
+        reader = Reader(args.input)
+        print(','.join(reader.fields))
+        for row in reader:
             print(','.join(map(str, row)))
 
 
