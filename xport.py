@@ -16,7 +16,7 @@ import math
 import struct
 
 
-__version__ = (0, 6, 2)
+__version__ = (0, 6, 3)
 
 __all__ = ['Reader', 'DictReader',
            'load', 'loads',
