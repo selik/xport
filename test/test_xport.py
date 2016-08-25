@@ -3,6 +3,7 @@ Tests for ``xport.py``.
 '''
 
 import csv
+from collections import OrderedDict, namedtuple
 import glob
 import math
 import os
@@ -229,6 +230,21 @@ class TestDumpRows(unittest.TestCase):
                 ('universe', 3.14),
                 ('everything', 42)]
         self.roundtrip(rows)
+
+    def test_rows_as_namedtuple(self):
+        Row = namedtuple('Row', 's n')
+        rows = [Row(s='life', n=1.0),
+                Row(s='universe', n=3.14),
+                Row(s='everything', n=42.0)]
+        self.roundtrip(rows)
+
+    def test_rows_as_dict(self):
+        rows = [OrderedDict([('s', 'life'), ('n', 1.0)]),
+                OrderedDict([('s', 'universe'), ('n', 3.14)]),
+                OrderedDict([('s', 'everything'), ('n', 42.0)])]
+        xpt = xport.dumps(rows)
+        dup = [t._asdict() for t in xport.loads(xpt)]
+        self.assertEqual(rows, dup)
 
 
 

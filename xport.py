@@ -544,9 +544,10 @@ def dump(fp, data, mode='rows'):
         dump(fp, rows) -> None
 
     In this case, ``rows`` should be an iterable of iterables, such as
-    a list of tuples. If the first row is a namedtuple (or any
-    instance of tuple that has a ``._fields`` attribute), the column labels
-    will be inferred from the fields of that row.
+    a list of tuples. If the rows are mappings or namedtuples (or any
+    instance of a tuple that has a ``._fields`` attribute), the column
+    labels will be inferred from the keys or attributes of the first
+    row.
 
     Alternately, the data may be specified as columns: either as a
     mapping of labels to columns, an iterable of (label, column)
@@ -576,15 +577,29 @@ def dump(fp, data, mode='rows'):
 
     if mode == 'columns':
         columns = OrderedDict(data)
+
     if mode == 'rows':
         if isinstance(data, Mapping):
             msg = 'expected data as rows, got {type!r}' \
                   "; did you intend mode='columns'?"
             raise TypeError(msg.format(type=data.__class__.__name__))
-        columns = OrderedDict(('x%d' % i, column) for i, column in enumerate(zip_longest(*data)))
+
+        # extract column labels if rows are mappings or namedtuples
+        data = list(data)
+        firstrow = data[0]
+        if isinstance(firstrow, Mapping):
+            labels = list(firstrow.keys())
+            data = (mapping.values() for mapping in data)
+        elif isinstance(firstrow, tuple) and hasattr(firstrow, '_fields'):
+            labels = firstrow._fields
+        else:
+            labels = ['x%d' % i for i, cell in enumerate(firstrow)]
+
+        # transform rows to columns
+        columns = OrderedDict(zip(labels, zip_longest(*data)))
 
     # make a copy to avoid accidentally mutating the passed-in data
-    columns = OrderedDict([(label, list(column)) for label, column in columns.items()])
+    columns = OrderedDict((label, list(column)) for label, column in columns.items())
 
 
 
