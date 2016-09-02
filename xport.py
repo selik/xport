@@ -16,7 +16,7 @@ import math
 import struct
 
 
-__version__ = (0, 6, 4)
+__version__ = (0, 6, 5)
 
 __all__ = ['Reader', 'DictReader',
            'load', 'loads',
@@ -415,7 +415,7 @@ def to_dataframe(filename):
     import pandas as pd
     with open(filename, 'rb') as f:
         xptfile = Reader(f)
-        return pd.DataFrame(list(xptfile), columns=xptfile.fields)
+        return pd.DataFrame(iter(xptfile), columns=xptfile.fields)
 
 
 
