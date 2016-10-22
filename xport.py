@@ -15,7 +15,7 @@ import math
 import struct
 
 
-__version__ = (1, 0, 0)
+__version__ = (1, 1, 0)
 
 __all__ = ['Reader', 'DictReader',
            'load', 'loads',
@@ -538,45 +538,6 @@ def ieee_to_ibm(ieee):
 
 
 
-def from_rows(rows, fp):
-    '''
-    Write rows to the open file object ``fp`` in XPT-format.
-
-    In this case, ``rows`` should be an iterable of iterables, such as
-    a list of tuples. If the rows are mappings or namedtuples (or any
-    instance of a tuple that has a ``._fields`` attribute), the column
-    labels will be inferred from the keys or attributes of the first
-    row.
-
-    Column labels are restricted to 40 characters. The XPT format also
-    requires a separate column "name" that is restricted to 8
-    characters. This name will be automatically created based on the
-    column label -- the first 8 characters, non-alphabet characters
-    replaced with underscores, padded to 8 characters if necessary.
-    All text strings, including column labels, will be converted to
-    bytes using the ISO-8859-1 encoding.
-    '''
-    if not rows:
-        msg = 'must have at least one row, got {!r}'
-        raise ValueError(msg.format(rows))
-
-    it = iter(rows)
-    rows, duplicate = tee(it)
-    firstrow = next(duplicate)
-
-    if isinstance(firstrow, Mapping):
-        labels = list(firstrow.keys())
-        rows = (mapping.values() for mapping in rows)
-    elif isinstance(firstrow, tuple) and hasattr(firstrow, '_fields'):
-        labels = firstrow._fields
-    else:
-        labels = ['x%d' % i for i, cell in enumerate(firstrow)]
-
-    columns = OrderedDict(zip(labels, zip_longest(*rows)))
-    return from_columns(columns, fp)
-
-
-
 def from_columns(mapping, fp):
     '''
     Write columns to the open file opbject ``fp`` in XPT-format.
@@ -731,6 +692,55 @@ def from_columns(mapping, fp):
         fp.write(b' ' * (80 - remainder))
 
     fp.flush()
+
+
+
+def from_rows(rows, fp):
+    '''
+    Write rows to the open file object ``fp`` in XPT-format.
+
+    In this case, ``rows`` should be an iterable of iterables, such as
+    a list of tuples. If the rows are mappings or namedtuples (or any
+    instance of a tuple that has a ``._fields`` attribute), the column
+    labels will be inferred from the keys or attributes of the first
+    row.
+
+    Column labels are restricted to 40 characters. The XPT format also
+    requires a separate column "name" that is restricted to 8
+    characters. This name will be automatically created based on the
+    column label -- the first 8 characters, non-alphabet characters
+    replaced with underscores, padded to 8 characters if necessary.
+    All text strings, including column labels, will be converted to
+    bytes using the ISO-8859-1 encoding.
+    '''
+    if not rows:
+        msg = 'must have at least one row, got {!r}'
+        raise ValueError(msg.format(rows))
+
+    it = iter(rows)
+    rows, duplicate = tee(it)
+    firstrow = next(duplicate)
+
+    if isinstance(firstrow, Mapping):
+        labels = list(firstrow.keys())
+        rows = (mapping.values() for mapping in rows)
+    elif isinstance(firstrow, tuple) and hasattr(firstrow, '_fields'):
+        labels = firstrow._fields
+    else:
+        labels = ['x%d' % i for i, cell in enumerate(firstrow)]
+
+    columns = OrderedDict(zip(labels, zip_longest(*rows)))
+    return from_columns(columns, fp)
+
+
+
+def from_dataframe(dataframe, fp):
+    '''
+    Write a Pandas Dataframe to an open file-like object, ``fp``, in
+    XPT-format.
+    '''
+    mapping = OrderedDict((label, list(df[label])) for label in dataframe.columns)
+    return from_columns(mapping, fp)
 
 
 
