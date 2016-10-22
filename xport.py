@@ -13,9 +13,10 @@ from datetime import datetime
 from functools import partial
 import math
 import struct
+import warnings
 
 
-__version__ = (1, 1, 2)
+__version__ = (1, 1, 3)
 
 __all__ = ['Reader', 'DictReader',
            'load', 'loads',
@@ -577,6 +578,9 @@ def from_columns(mapping, fp):
         raise ValueError(msg.format(mapping))
     if not all(mapping.values()):
         raise ValueError('all columns must have at least one element')
+
+    if fp.tell():
+        warnings.warn('not writing to beginning of file', stacklevel=2)
 
     # make a copy to avoid accidentally mutating the passed-in data
     columns = OrderedDict((k, list(v)) for k, v in mapping.items())
