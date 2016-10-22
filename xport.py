@@ -120,8 +120,8 @@ def _parse_field(raw, variable):
 
 class Reader(object):
     '''
-    Deserialize ``self._fp`` (a ``.read()``-supporting file-like object containing
-    an XPT document) to a Python object.
+    Deserialize ``self._fp`` (a ``.read()``-supporting file-like
+    object containing an XPT document) to a Python object.
 
     The returned object is an iterator.
     Each iteration returns an observation from the XPT file.
@@ -350,8 +350,19 @@ class Reader(object):
                 break
 
             count += 1
-            chunks = [block[v.position : v.position + v.size] for v in variables]
-            yield Row._make(_parse_field(raw, v) for raw, v in zip(chunks, variables))
+            yield Row._make(self._parse_observation(block, variables))
+
+
+    def _parse_observation(self, block, variables):
+        '''
+        Parse values from an XPT-formatted observation/row.
+        '''
+        for v in variables:
+            chunk = block[v.position:v.position + v.size]
+            if v.numeric:
+                yield ibm_to_ieee(chunk)
+            else:
+                yield chunk.rstrip().decode('ISO-8859-1')
 
 
 
@@ -464,20 +475,6 @@ def format_date(dt):
 
 
 
-def encode(value, missing=None):
-    '''
-    Convert a Python object (string or number) to bytes in XPT format
-    '''
-    if value is None and missing is not None:
-        return missing
-    if isinstance(value, bytes):
-        return value
-    if isinstance(value, str):
-        return value.encode('ISO-8859-1')
-    return ieee_to_ibm(value)
-
-
-
 def ieee_to_ibm(ieee):
     '''
     Translate Python floating point numbers to IBM-format (as bytes).
@@ -487,7 +484,7 @@ def ieee_to_ibm(ieee):
 
     if ieee == 0.0:
         return b'\x00' * 8
-    if math.isnan(ieee):
+    if ieee is None or math.isnan(ieee):
         return b'_' + b'\x00' * 7
     if math.isinf(ieee):
         raise NotImplementedError('Cannot convert infinity')
@@ -500,9 +497,11 @@ def ieee_to_ibm(ieee):
     mantissa = ulong & 0x000fffffffffffff               # 52-bits   mantissa/significand
 
     if exponent > 248:
-        raise Overflow('Cannot store magnitude more than ~ 16 ** 63 as IBM-format')
+        msg = 'Cannot store magnitude more than ~ 16 ** 63 as IBM-format'
+        raise Overflow(msg)
     if exponent < -260:
-        raise Underflow('Cannot store magnitude less than ~ 16 ** -65 as IBM-format')
+        msg = 'Cannot store magnitude less than ~ 16 ** -65 as IBM-format'
+        raise Underflow(msg)
 
     # IEEE mantissa has an implicit 1 left of the radix:    1.significand
     # IBM mantissa has an implicit 0 left of the radix:     0.significand
@@ -607,7 +606,7 @@ def dump(fp, data, mode='rows'):
     ### headers ###
 
     sas_version = b'6.06    ' # the version in the SAS XPT specification I read
-    os_version = encode(platform.system())[:8].ljust(8)
+    os_version = platform.system().encode('ISO-8859-1')[:8].ljust(8)
     created = format_date(datetime.now())
 
     # 1st real header record
@@ -651,7 +650,7 @@ def dump(fp, data, mode='rows'):
     fields = OrderedDict()
     position = 0
     for label, column in columns.items():
-        label = encode(label)
+        label = label.encode('ISO-8859-1')
 
         # name must be exactly 8 bytes and usually is alphanumeric
         name = b'_'.join(re.findall(b'[A-Za-z0-9_]+', label))[:8].ljust(8)
@@ -661,8 +660,10 @@ def dump(fp, data, mode='rows'):
             raise ValueError('Columns must have at least one element')
 
         # encode as bytes
-        _encode = partial(encode, missing=float('nan') if numeric else '')
-        column[:] = list(map(_encode, column))
+        if numeric:
+            column[:] = [ieee_to_ibm(value) for value in column]
+        else:
+            column[:] = [value.encode('ISO-8859-1') for value in column]
 
         # standardize the size of the values
         size = max(map(len, column))
@@ -677,7 +678,7 @@ def dump(fp, data, mode='rows'):
     # Namestr header record
     fp.write(b'HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!'
              b'000000'
-             + encode(str(len(fields)).zfill(4))
+             + str(len(fields)).zfill(4).encode('ISO-8859-1')
              + b'00000000000000000000  ')
 
     # Namestrs, one for each column
