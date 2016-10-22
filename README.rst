@@ -24,13 +24,15 @@ However, if you're using SAS v8+, you're probably not using XPT
 format. The changes to the format appear to be trivial changes to the
 metadata, but this module's current error-checking will raise a
 ``ParseError``. If you'd like an update for v8, please let me know by
-[submitting an issue](https://github.com/selik/xport/issues/new).
+`submitting an issue`_.
 
 .. _United States government agencies: https://www.google.com/search?q=site:.gov+xpt+file
 
 .. _SAS specification for XPORT: http://support.sas.com/techsup/technote/ts140.pdf
 
 .. _update to the XPT specification: https://support.sas.com/techsup/technote/ts140_2.pdf
+
+.. _submitting an issue: https://github.com/selik/xport/issues/new
 
 
 
