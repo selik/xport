@@ -369,7 +369,7 @@ class Reader(object):
 class DictReader(object):
 
     def __init__(self, fp):
-        self.reader = reader(fp)
+        self.reader = Reader(fp)
 
     def __iter__(self):
         return (row._asdict() for row in self.reader)
