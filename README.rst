@@ -23,7 +23,8 @@ This module *has not yet been updated* to work with the new version.
 However, if you're using SAS v8+, you're probably not using XPT
 format. The changes to the format appear to be trivial changes to the
 metadata, but this module's current error-checking will raise a
-``ValueError``.
+``ParseError``. If you'd like an update for v8, please let me know by
+[submitting an issue](https://github.com/selik/xport/issues/new).
 
 .. _United States government agencies: https://www.google.com/search?q=site:.gov+xpt+file
 
