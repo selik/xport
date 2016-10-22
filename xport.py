@@ -354,7 +354,7 @@ class Reader(object):
         while True:
             block = self._fp.read(blocksize)
             if len(block) < blocksize:
-                if block and set(block) != set(padding):
+                if set(block) <= set(padding):
                     raise ParseError('incomplete record', sentinel, block)
                 remainder = count * blocksize % 80
                 if remainder:
