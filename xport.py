@@ -354,18 +354,18 @@ class Reader(object):
         while True:
             block = self._fp.read(blocksize)
             if len(block) < blocksize:
-                if set(block) != set(padding):
-                    raise ValueError('Incomplete record, {!r}'.format(block))
+                if block and set(block) != set(padding):
+                    raise ParseError('incomplete record', sentinel, block)
                 remainder = count * blocksize % 80
-                if remainder and len(block) != 80 - remainder:
-                    raise ValueError('Insufficient padding at end of file')
+                if remainder:
+                    match(80 - remainder, len(block), 'end-of-file padding')
                 break
             elif block == sentinel:
                 rest = self._fp.read()
                 if rest and set(rest) != set(padding):
                     raise NotImplementedError('Cannot read multiple members.')
-                if blocksize + len(rest) != 80 - (count * blocksize % 80):
-                    raise ValueError('Incorrect padding at end of file')
+                match(80 - (count * blocksize % 80), blocksize + len(rest),
+                      'end-of-file padding')
                 break
 
             count += 1
