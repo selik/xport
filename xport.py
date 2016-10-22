@@ -15,7 +15,7 @@ import math
 import struct
 
 
-__version__ = (1, 1, 0)
+__version__ = (1, 1, 1)
 
 __all__ = ['Reader', 'DictReader',
            'load', 'loads',
@@ -33,6 +33,18 @@ __all__ = ['Reader', 'DictReader',
 ######################################################################
 ### Reading XPT                                                   ####
 ######################################################################
+
+class ParseError(ValueError):
+    '''
+    Bytes did not match expected format
+    '''
+    def __init__(self, message, expected, got):
+        message += ' -- expected {!r}, got {!r}'.format(expected, got)
+        super(ParseError, self).__init__(message)
+        self.expected = expected
+        self.got = got
+
+
 
 Variable = namedtuple('Variable', 'name numeric position size')
 
@@ -110,10 +122,10 @@ def ibm_to_ieee(ibm):
 
 
 
-def _parse_field(raw, variable):
-    if variable.numeric:
-        return ibm_to_ieee(raw)
-    return raw.rstrip().decode('ISO-8859-1')
+def match(pattern, data, topic=''):
+    if data != pattern:
+        raise ParseError(message=topic, expected=pattern, got=data)
+    return True
 
 
 
@@ -165,6 +177,8 @@ class Reader(object):
 
 
     def _read_header(self):
+        match_ = partial(match, topic='header')
+
         # --- line 1 -------------
         fmt = '>48s32s'
         raw = self._fp.read(80)
@@ -172,10 +186,16 @@ class Reader(object):
 
         prefix, padding = tokens
 
-        if prefix != b'HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!':
-            raise ValueError('Invalid header: %r' % prefix)
-        if padding != b'0' * 30:
-            raise ValueError('Invalid header: %r' % padding)
+        try:
+            match_(b'HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!', prefix)
+            match_(b'0' * 30, padding)
+        except ParseError:
+            line = prefix + padding
+            if line[:74] == b' '.join([b'**COMPRESSED**'] * 5):
+                msg = '{name!r} is a CPORT file, not XPORT'
+                raise NotImplementedError(msg.format(name=self._fp.name))
+            else:
+                raise
 
         # --- line 2 -------------
         fmt = '>8s8s8s8s8s24s16s'
@@ -185,8 +205,7 @@ class Reader(object):
         prefix = tokens[:3]
         version, os, _, created = tokens[3:]
 
-        if prefix != (b'SAS', b'SAS', b'SASLIB'):
-            raise ValueError('Invalid header: %r' % (prefix,))
+        match_((b'SAS', b'SAS', b'SASLIB'), prefix)
 
         version = tuple(int(s) for s in version.split(b'.'))
         created = parse_date(created)
@@ -205,6 +224,8 @@ class Reader(object):
 
 
     def _read_member_header(self):
+        match_ = partial(match, topic='member header')
+
         # --- line 1 -------------
         fmt = '>48s26s4s2s'
         raw = self._fp.read(80)
@@ -212,8 +233,8 @@ class Reader(object):
 
         prefix, _, namestr_size, _ = tokens
 
-        if prefix != b'HEADER RECORD*******MEMBER  HEADER RECORD!!!!!!!':
-            raise ValueError('Invalid header: %r' % prefix)
+
+        match_(b'HEADER RECORD*******MEMBER  HEADER RECORD!!!!!!!', prefix)
 
         namestr_size = int(namestr_size)
 
@@ -224,8 +245,7 @@ class Reader(object):
 
         prefix, _ = tokens
 
-        if prefix != b'HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!':
-            raise ValueError('Invalid header: %r' % prefix)
+        match_(b'HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!', prefix)
 
         # --- line 3 -------------
         fmt = '>8s8s8s8s8s24s16s'
@@ -234,10 +254,8 @@ class Reader(object):
 
         prefix, dsname, sasdata, version, os, _, created = tokens
 
-        if prefix != b'SAS':
-            raise ValueError('Invalid header: %r' % prefix)
-        if sasdata != b'SASDATA':
-            raise ValueError('Invalid header: %r' % prefix)
+        match_(b'SAS', prefix)
+        match_(b'SASDATA', sasdata)
 
         version = tuple(map(int, version.rstrip().split(b'.')))
         created = parse_date(created)
@@ -259,6 +277,8 @@ class Reader(object):
 
 
     def _read_namestr_header(self):
+        match_ = partial(match, topic='member header')
+
         # --- line 1 -------------
         fmt = '>48s6s4s22s'
         raw = self._fp.read(80)
@@ -266,8 +286,7 @@ class Reader(object):
 
         prefix, _, number_of_variables, _ = tokens
 
-        if prefix != b'HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!':
-            raise ValueError('Invalid header: %r' % prefix)
+        match_(b'HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!', prefix)
 
         # ------------------------
         return int(number_of_variables)
@@ -312,6 +331,8 @@ class Reader(object):
 
 
     def _read_observations_header(self):
+        match_ = partial(match, topic='observations header')
+
         # --- line 1 -------------
         fmt = '>48s32s'
         raw = self._fp.read(80)
@@ -319,8 +340,7 @@ class Reader(object):
 
         prefix, _ = tokens
 
-        if prefix != b'HEADER RECORD*******OBS     HEADER RECORD!!!!!!!':
-            raise ValueError('Invalid header: %r' % prefix)
+        match_(b'HEADER RECORD*******OBS     HEADER RECORD!!!!!!!', prefix)
 
 
     def _read_observations(self, variables):
