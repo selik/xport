@@ -16,7 +16,7 @@ import math
 import struct
 
 
-__version__ = (0, 6, 5)
+__version__ = (0, 6, 6)
 
 __all__ = ['Reader', 'DictReader',
            'load', 'loads',
@@ -654,10 +654,14 @@ def dump(fp, data, mode='rows'):
 
         # name must be exactly 8 bytes and usually is alphanumeric
         name = b'_'.join(re.findall(b'[A-Za-z0-9_]+', label))[:8].ljust(8)
-        try:
-            numeric = isinstance(column[0], Number)
-        except IndexError:
-            raise ValueError('Columns must have at least one element')
+
+        numeric = all(isinstance(value, Number) for value in column if value is not None)
+        if not numeric:
+            for i, value in enumerate(column):
+                if value is None:
+                    column[i] = ''
+                elif isinstance(value, float) and math.isnan(value):
+                    column[i] = ''
 
         # encode as bytes
         if numeric:
