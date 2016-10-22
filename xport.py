@@ -11,12 +11,11 @@ from __future__ import division, print_function
 from collections import namedtuple
 from datetime import datetime
 from functools import partial
-from io import BytesIO
 import math
 import struct
 
 
-__version__ = (0, 6, 6)
+__version__ = (1, 0, 0)
 
 __all__ = ['Reader', 'DictReader',
            'load', 'loads',
@@ -376,9 +375,9 @@ class DictReader(object):
 
 
 
-def load(fp, mode='rows'):
+def to_rows(fp):
     '''
-    Read and return rows from the XPT-format table stored in a file.
+    Read a file in XPT-format and return rows.
 
     Deserialize ``fp`` (a ``.read()``-supporting file-like object
     containing an XPT document) to a list of rows. As XPT files are
@@ -386,47 +385,50 @@ def load(fp, mode='rows'):
     bytes-mode. ``Row`` objects will be namedtuples with attributes
     parsed from the XPT metadata.
     '''
+    return list(Reader(fp))
+
+
+
+def to_columns(fp):
+    '''
+    Read a file in XPT-format and return columns as a dict of lists.
+
+    Deserialize ``fp`` (a ``.read()``-supporting file-like object
+    containing an XPT document) to a list of rows. As XPT files are
+    encoded in their own special format, the ``fp`` object must be in
+    bytes-mode.
+    '''
     reader = Reader(fp)
-    if mode == 'rows':
-        return list(reader)
-    if mode == 'columns':
-        return dict(zip(reader.fields, zip(*reader)))
-
-    msg = "expected mode 'rows' or 'columns', got {}"
-    raise ValueError(msg.format(mode))
+    return dict(zip(reader.fields, zip(*reader)))
 
 
 
-def loads(s, mode='rows'):
-    '''
-    Read and return rows from the given XPT data.
-
-    Deserialize ``s`` (a ``bytes`` instance containing an XPT
-    document) to a list of rows. ``Row`` objects will be namedtuples
-    with attributes parsed from the XPT metadata.
-    '''
-    return load(BytesIO(s), mode)
-
-
-
-def to_numpy(filename):
+def to_numpy(fp):
     '''
     Read a file in SAS XPT format and return a NumPy array.
+
+    Deserialize ``fp`` (a ``.read()``-supporting file-like object
+    containing an XPT document) to a list of rows. As XPT files are
+    encoded in their own special format, the ``fp`` object must be in
+    bytes-mode.
     '''
     import numpy as np
-    with open(filename, 'rb') as f:
-        return np.vstack(Reader(f))
+    return np.vstack(Reader(fp))
 
 
 
-def to_dataframe(filename):
+def to_dataframe(fp):
     '''
     Read a file in SAS XPT format and return a Pandas DataFrame.
+
+    Deserialize ``fp`` (a ``.read()``-supporting file-like object
+    containing an XPT document) to a list of rows. As XPT files are
+    encoded in their own special format, the ``fp`` object must be in
+    bytes-mode.
     '''
     import pandas as pd
-    with open(filename, 'rb') as f:
-        xptfile = Reader(f)
-        return pd.DataFrame(iter(xptfile), columns=xptfile.fields)
+    reader = Reader(fp)
+    return pd.DataFrame(iter(reader), columns=reader.fields)
 
 
 
@@ -536,11 +538,9 @@ def ieee_to_ibm(ieee):
 
 
 
-def dump(fp, data, mode='rows'):
+def from_rows(rows, fp):
     '''
-    Write rows in XPT-format to the open file object ``fp``.
-
-        dump(fp, rows) -> None
+    Write rows to the open file object ``fp`` in XPT-format.
 
     In this case, ``rows`` should be an iterable of iterables, such as
     a list of tuples. If the rows are mappings or namedtuples (or any
@@ -548,18 +548,40 @@ def dump(fp, data, mode='rows'):
     labels will be inferred from the keys or attributes of the first
     row.
 
-    Alternately, the data may be specified as columns: either as a
-    mapping of labels to columns, an iterable of (label, column)
-    pairs, or as keyword arguments -- the key being the label and the
-    value being the column.
+    Column labels are restricted to 40 characters. The XPT format also
+    requires a separate column "name" that is restricted to 8
+    characters. This name will be automatically created based on the
+    column label -- the first 8 characters, non-alphabet characters
+    replaced with underscores, padded to 8 characters if necessary.
+    All text strings, including column labels, will be converted to
+    bytes using the ISO-8859-1 encoding.
+    '''
+    if not rows:
+        msg = 'must have at least one row, got {!r}'
+        raise ValueError(msg.format(rows))
 
-        dump(fp, dict(zip(labels, columns))) -> None
-        dump(fp, zip(labels, columns)) -> None
-        dump(fp, label_a=column_a, label_b=column_b) -> None
+    it = iter(rows)
+    rows, duplicate = tee(it)
+    firstrow = next(duplicate)
 
-    The columns must each be the same length. The values within a
-    column must be the same type, either numeric or text. Float NaN is
-    acceptable, but ``None`` is not permitted.
+    if isinstance(firstrow, Mapping):
+        labels = list(firstrow.keys())
+        rows = (mapping.values() for mapping in rows)
+    elif isinstance(firstrow, tuple) and hasattr(firstrow, '_fields'):
+        labels = firstrow._fields
+    else:
+        labels = ['x%d' % i for i, cell in enumerate(firstrow)]
+
+    columns = OrderedDict(zip(labels, zip_longest(*rows)))
+    return from_columns(columns, fp)
+
+
+
+def from_columns(mapping, fp):
+    '''
+    Write columns to the open file opbject ``fp`` in XPT-format.
+
+    The mapping should be of column names to equal-length sequences.
 
     Column labels are restricted to 40 characters. The XPT format also
     requires a separate column "name" that is restricted to 8
@@ -567,40 +589,16 @@ def dump(fp, data, mode='rows'):
     column label -- the first 8 characters, non-alphabet characters
     replaced with underscores, padded to 8 characters if necessary.
     All text strings, including column labels, will be converted to
-    bytes using the ISO-8859-1 encoding. Any byte strings will not be
-    changed and may create invalid XPT files if they were encoded
-    inappropriately.
+    bytes using the ISO-8859-1 encoding.
     '''
-    if not data:
-        raise ValueError('must have at least one {}'.format(mode[:-1]))
-
-    if mode == 'columns':
-        columns = OrderedDict(data)
-
-    if mode == 'rows':
-        if isinstance(data, Mapping):
-            msg = 'expected data as rows, got {type!r}' \
-                  "; did you intend mode='columns'?"
-            raise TypeError(msg.format(type=data.__class__.__name__))
-
-        # extract column labels if rows are mappings or namedtuples
-        it = iter(data)
-        data, duplicate = tee(it)
-        firstrow = next(duplicate)
-        if isinstance(firstrow, Mapping):
-            labels = list(firstrow.keys())
-            data = (mapping.values() for mapping in data)
-        elif isinstance(firstrow, tuple) and hasattr(firstrow, '_fields'):
-            labels = firstrow._fields
-        else:
-            labels = ['x%d' % i for i, cell in enumerate(firstrow)]
-
-        # transform rows to columns
-        columns = OrderedDict(zip(labels, zip_longest(*data)))
+    if not mapping:
+        msg = 'must have at least one column, got {!r}'
+        raise ValueError(msg.format(mapping))
+    if not all(mapping.values()):
+        raise ValueError('all columns must have at least one element')
 
     # make a copy to avoid accidentally mutating the passed-in data
-    columns = OrderedDict((label, list(column)) for label, column in columns.items())
-
+    columns = OrderedDict((k, list(v)) for k, v in mapping.items())
 
 
     ### headers ###
@@ -656,18 +654,20 @@ def dump(fp, data, mode='rows'):
         name = b'_'.join(re.findall(b'[A-Za-z0-9_]+', label))[:8].ljust(8)
 
         numeric = all(isinstance(value, Number) for value in column if value is not None)
-        if not numeric:
-            for i, value in enumerate(column):
-                if value is None:
-                    column[i] = ''
-                elif isinstance(value, float) and math.isnan(value):
-                    column[i] = ''
 
         # encode as bytes
         if numeric:
             column[:] = [ieee_to_ibm(value) for value in column]
         else:
-            column[:] = [value.encode('ISO-8859-1') for value in column]
+            for i, value in enumerate(column):
+                if value is None:
+                    column[i] = b''
+                elif isinstance(value, float) and math.isnan(value):
+                    column[i] = b''
+                elif isinstance(value, str):
+                    column[i] = value.encode('ISO-8859-1')
+                else:
+                    column[i] = str(value).encode('ISO-8859-1')
 
         # standardize the size of the values
         size = max(map(len, column))
@@ -731,40 +731,6 @@ def dump(fp, data, mode='rows'):
         fp.write(b' ' * (80 - remainder))
 
     fp.flush()
-
-
-
-def dumps(data, mode='rows'):
-    '''
-    Return the XPT-format representation of columns as a bytes object.
-
-    The columns may be specified as a mapping of labels to columns, an
-    iterable of (label, column) pairs, or as keyword arguments -- the
-    key being the label and the value being the column.
-
-        dumps(dict(zip(labels, columns))) -> bytes
-        dumps(zip(labels, columns)) -> bytes
-        dumps(label_a=column_a, label_b=column_b) -> bytes
-
-    The columns must each be the same length. The values within a
-    column must be the same type, either numeric or text. Float NaN is
-    acceptable, but ``None`` is not permitted.
-
-    Column labels are restricted to 40 characters. The XPT format also
-    requires a separate column "name" that is restricted to 8
-    characters. This name will be automatically created based on the
-    column label -- the first 8 characters, non-alphabet characters
-    replaced with underscores, padded to 8 characters if necessary.
-    All text strings, including column labels, will be converted to
-    bytes using the ISO-8859-1 encoding. Any byte strings will not be
-    changed and may create invalid XPT files if they were encoded
-    inappropriately.
-    '''
-    fp = BytesIO()
-    dump(fp, data, mode)
-    fp.seek(0)
-    return fp.read()
-
 
 
 

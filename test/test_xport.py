@@ -9,6 +9,7 @@ import math
 import os
 import string
 import unittest
+from io import BytesIO
 import xport
 
 
@@ -199,16 +200,18 @@ class TestIEEEtoIBM(unittest.TestCase):
 
 
 
-class TestDumpColumns(unittest.TestCase):
+class TestFromToColumns(unittest.TestCase):
 
     def roundtrip(self, mapping):
-        xpt = xport.dumps(mapping, mode='columns')
-        duplicate = xport.loads(xpt, mode='columns')
+        fp = BytesIO()
+        xport.from_columns(mapping, fp)
+        fp.seek(0)
+        duplicate = xport.to_columns(fp)
         for label, column in mapping.items():
             for a, b in zip(column, duplicate[label]):
                 self.assertEqual(a, b)
 
-    def test_roundtrip_dump_load(self):
+    def test_roundtrip_dict(self):
         columns = {'whole': list(range(10)),
                    'fraction': [i ** -0.5 for i in range(1, 11)],
                    'letters': list(string.ascii_letters[:10]),
@@ -222,10 +225,13 @@ class TestDumpColumns(unittest.TestCase):
 class TestDumpRows(unittest.TestCase):
 
     def roundtrip(self, rows):
-        duplicate = xport.loads(xport.dumps(rows))
+        fp = BytesIO()
+        xport.from_rows(rows, fp)
+        fp.seek(0)
+        duplicate = xport.to_rows(fp)
         self.assertEqual(rows, duplicate)
 
-    def test_roundtrip_dump_load(self):
+    def test_roundtrip_tuples(self):
         rows = [('life', 1),
                 ('universe', 3.14),
                 ('everything', 42)]
@@ -238,12 +244,14 @@ class TestDumpRows(unittest.TestCase):
                 Row(s='everything', n=42.0)]
         self.roundtrip(rows)
 
-    def test_rows_as_dict(self):
+    def test_rows_as_ordered_dict(self):
         rows = [OrderedDict([('s', 'life'), ('n', 1.0)]),
                 OrderedDict([('s', 'universe'), ('n', 3.14)]),
                 OrderedDict([('s', 'everything'), ('n', 42.0)])]
-        xpt = xport.dumps(rows)
-        dup = [t._asdict() for t in xport.loads(xpt)]
+        fp = BytesIO()
+        xport.from_rows(rows, fp)
+        fp.seek(0)
+        dup = [t._asdict() for t in xport.to_rows(fp)]
         self.assertEqual(rows, dup)
 
 
