@@ -144,6 +144,9 @@ class Reader(object):
     '''
 
     def __init__(self, fp):
+        if fp.tell():
+            warnings.warn('not starting from beginning of file', stacklevel=2)
+
         self._fp = fp
         try:
             version, os, created, modified = self._read_header()
