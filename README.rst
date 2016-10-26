@@ -188,6 +188,13 @@ first row.
 
 
 
+Feature requests
+================
+
+I'm happy to fix bugs, improve the interface, or make the module
+faster. Just `submit an issue`_ and I'll take a look.
+
+.. _submit an issue: https://github.com/selik/xport/issues/new
 
 
 
