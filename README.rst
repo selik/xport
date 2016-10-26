@@ -51,10 +51,14 @@ providing ``Reader`` and ``DictReader`` classes. Note that
 
 
 
-Each row will be a namedtuple, with an attribute for each field in the
-dataset. Values in the row will be either a unicode string or a float,
-as specified by the XPT file metadata. Note that since XPT files are
-in an unusual binary format, you should open them using mode ``'rb'``.
+Values in the row will be either a unicode string or a float, as
+specified by the XPT file metadata. Note that since XPT files are in
+an unusual binary format, you should open them using mode ``'rb'``.
+
+
+
+For convenience, you can also use the ``NamedTupleReader`` to get each
+row as a namedtuple, with an attribute for each field in the dataset.
 
 
 
