@@ -158,9 +158,10 @@ correctly write the XPT file headers.
 
 
 
-The ``to_rows`` function expects an iterable of iterables, like a list
-of tuples. In this case, the column labels have not been specified and
-will automatically be assigned as 'x0', 'x1', 'x2', ..., 'xM'.
+The ``from_rows`` function expects an iterable of iterables, like a
+list of tuples. In this case, the column labels have not been
+specified and will automatically be assigned as 'x0', 'x1', 'x2', ...,
+'xM'.
 
 .. code:: python
 
@@ -171,7 +172,7 @@ will automatically be assigned as 'x0', 'x1', 'x2', ..., 'xM'.
 
 
 
-To specify the column labels for ``to_rows``, each row can be a
+To specify the column labels for ``from_rows``, each row can be a
 mapping (such as a ``dict``) of the column labels to that row's
 values. Each row should have the same keys. Passing in rows as
 namedtuples, or any instance of a ``tuple`` that has a ``._fields``
