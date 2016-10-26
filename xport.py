@@ -16,7 +16,7 @@ import struct
 import warnings
 
 
-__version__ = (2, 0, 0)
+__version__ = (2, 0, 1)
 
 __all__ = ['Reader',
            'DictReader',
@@ -391,26 +391,20 @@ class Reader(object):
 
 
 
-class DictReader(object):
-
-    def __init__(self, fp):
-        self.reader = Reader(fp)
+class DictReader(Reader):
 
     def __iter__(self):
-        names = self.reader.fields
-        for row in self.reader:
+        names = self.fields
+        for row in super(DictReader, self).__iter__():
             yield dict(zip(names, row))
 
 
 
-class NamedTupleReader(object):
-
-    def __init__(self, fp):
-        self.reader = Reader(fp)
+class NamedTupleReader(Reader):
 
     def __iter__(self):
-        Row = namedtuple('Row', self.reader.fields)
-        for row in self.reader:
+        Row = namedtuple('Row', self.fields)
+        for row in super(NamedTupleReader, self).__iter__():
             yield Row._make(row)
 
 
