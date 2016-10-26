@@ -16,11 +16,19 @@ import struct
 import warnings
 
 
-__version__ = (1, 1, 3)
+__version__ = (2, 0, 0)
 
-__all__ = ['Reader', 'DictReader',
-           'load', 'loads',
-           'dump', 'dumps']
+__all__ = ['Reader',
+           'DictReader',
+           'NamedTupleReader',
+           'to_rows',
+           'to_columns',
+           'to_numpy',
+           'to_dataframe',
+           'from_rows',
+           'from_columns',
+           'from_dataframe',
+           ]
 
 
 
@@ -311,10 +319,6 @@ class Reader(object):
         position = tokens[-2]
 
         name = name.decode('ascii').rstrip()
-        # try to make the name a valid nameduple field
-        # must be a valid identifier that does not start with underscore
-        if name.isnumeric():
-            name = 'x' + name
 
         is_numeric = True if is_numeric == 1 else False
 
@@ -348,8 +352,6 @@ class Reader(object):
 
 
     def _read_observations(self, variables):
-        Row = namedtuple('Row', [v.name for v in variables])
-
         blocksize = sum(v.size for v in variables)
         padding = b' '
         sentinel = padding * blocksize
@@ -358,7 +360,7 @@ class Reader(object):
         while True:
             block = self._fp.read(blocksize)
             if len(block) < blocksize:
-                if set(block) <= set(padding):
+                if not set(block) <= set(padding):
                     raise ParseError('incomplete record', sentinel, block)
                 remainder = count * blocksize % 80
                 if remainder:
@@ -373,7 +375,7 @@ class Reader(object):
                 break
 
             count += 1
-            yield Row._make(self._parse_observation(block, variables))
+            yield tuple(self._parse_observation(block, variables))
 
 
     def _parse_observation(self, block, variables):
@@ -395,7 +397,21 @@ class DictReader(object):
         self.reader = Reader(fp)
 
     def __iter__(self):
-        return (row._asdict() for row in self.reader)
+        names = self.reader.fields
+        for row in self.reader:
+            yield dict(zip(names, row))
+
+
+
+class NamedTupleReader(object):
+
+    def __init__(self, fp):
+        self.reader = Reader(fp)
+
+    def __iter__(self):
+        Row = namedtuple('Row', self.reader.fields)
+        for row in self.reader:
+            yield Row._make(row)
 
 
 

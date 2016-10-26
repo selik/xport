@@ -74,7 +74,7 @@ class TestStringsDataset(unittest.TestCase):
 
     def test_values(self):
         with open('test/data/strings.xpt', 'rb') as f:
-            it = (row.X for row in xport.Reader(f))
+            it = (row.X for row in xport.NamedTupleReader(f))
             assert next(it) == ''.join(chr(i) for i in range(1, 101))
             assert next(it) == ''.join(chr(i) for i in range(101,128))
 
@@ -104,7 +104,7 @@ class TestKnownValuesDataset(unittest.TestCase):
 
     def test_values(self):
         with open('test/data/known_values.xpt', 'rb') as f:
-            it = (row.X for row in xport.Reader(f))
+            it = (row.X for row in xport.NamedTupleReader(f))
             for value in [float(e) for e in range(-1000, 1001)]:
                 assert value == next(it)
             for value in [math.pi ** e for e in range(-30, 31)]:
@@ -251,7 +251,7 @@ class TestDumpRows(unittest.TestCase):
         fp = BytesIO()
         xport.from_rows(rows, fp)
         fp.seek(0)
-        dup = [t._asdict() for t in xport.to_rows(fp)]
+        dup = list(xport.DictReader(fp))
         self.assertEqual(rows, dup)
 
 
