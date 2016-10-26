@@ -205,6 +205,8 @@ Recent changes
 * Switched from ``load``/``dump`` with mode flags to ``to_rows``,
   ``to_columns``, ``from_rows`` and ``from_columns``.
 
+* ``Reader`` yields regular tuples, not namedtuples.
+
 
 Authors
 =======
