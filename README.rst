@@ -54,9 +54,6 @@ providing ``Reader`` and ``DictReader`` classes. Note that
 Values in the row will be either a unicode string or a float, as
 specified by the XPT file metadata. Note that since XPT files are in
 an unusual binary format, you should open them using mode ``'rb'``.
-
-
-
 For convenience, you can also use the ``NamedTupleReader`` to get each
 row as a namedtuple, with an attribute for each field in the dataset.
 
@@ -68,18 +65,13 @@ The ``to_rows`` function will simply return a list of rows. The
 ``to_columns`` function will return the data as columns rather than
 rows. The columns will be an ``OrderedDict`` mapping the column labels
 as strings to the column values as lists of either strings or floats.
+For convenient conversion to a `NumPy`_ array or `Pandas`_ dataframe,
+you can use ``to_numpy`` and ``to_dataframe``.
 
 .. code:: python
 
     with open('example.xpt', 'rb') as f:
         columns = xport.to_columns(f)
-
-
-
-For convenient conversion to a `NumPy`_ array or `Pandas`_ dataframe,
-you can use ``to_numpy`` and ``to_dataframe``.
-
-.. code:: python
 
     with open('example.xpt', 'rb') as f:
         a = xport.to_numpy(f)
