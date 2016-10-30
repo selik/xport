@@ -59,6 +59,20 @@ row as a namedtuple, with an attribute for each field in the dataset.
 
 
 
+The ``Reader`` object has a handful of metadata attributes:
+
+* ``Reader.fields`` -- Names of the fields in each observation.
+
+* ``Reader.version`` -- SAS version number used to create the XPT file.
+
+* ``Reader.os`` -- Operating system used to create the XPT file.
+
+* ``Reader.created`` -- Date and time that the XPT file was created.
+
+* ``Reader.modified`` -- Date and time that the XPT file was last modified.
+
+
+
 The module also provides a handful of utility functions for reading
 the whole XPT file and loading the rows into a Python data structure.
 The ``to_rows`` function will simply return a list of rows. The
@@ -85,20 +99,6 @@ you can use ``to_numpy`` and ``to_dataframe``.
 
 
 
-The ``Reader`` object has a handful of metadata attributes:
-
-* ``Reader.fields`` -- Names of the fields in each observation.
-
-* ``Reader.version`` -- SAS version number used to create the XPT file.
-
-* ``Reader.os`` -- Operating system used to create the XPT file.
-
-* ``Reader.created`` -- Date and time that the XPT file was created.
-
-* ``Reader.modified`` -- Date and time that the XPT file was last modified.
-
-
-
 You can also use the ``xport`` module as a command-line tool to convert an XPT
 file to CSV (comma-separated values) file.::
 
@@ -106,14 +106,14 @@ file to CSV (comma-separated values) file.::
 
 
 
-If you want to access specific records, you should use the ``load``
-function to gather the rows in a list or use one of ``itertools``
-recipes_ for quickly consuming and throwing away unncessary elements.
+If you want to access specific records, you should gather the rows in
+a list or use one of ``itertools`` recipes_ for quickly consuming and
+throwing away unncessary elements.
 
 .. code:: python
 
     # Collect all the records in a list for random access
-    rows = load(f)
+    rows = list(xport.Reader(f))
 
     # Select only record 42
     from itertools import islice
