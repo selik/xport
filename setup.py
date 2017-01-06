@@ -1,4 +1,12 @@
 #!/usr/bin/env python
+'''
+To upload to PyPI:
+    
+    $ python setup.py sdist
+    $ python setup.py bdist_wheel --universal
+    $ twine upload dist/*
+
+'''
 
 import xport
 
