@@ -16,7 +16,7 @@ import struct
 import warnings
 
 
-__version__ = (2, 0, 1)
+__version__ = (2, 0, 2)
 
 __all__ = ['Reader',
            'DictReader',
@@ -776,7 +776,7 @@ def from_dataframe(dataframe, fp):
     Write a Pandas Dataframe to an open file-like object, ``fp``, in
     XPT-format.
     '''
-    mapping = OrderedDict((label, list(df[label])) for label in dataframe.columns)
+    mapping = OrderedDict((label, list(dataframe[label])) for label in dataframe.columns)
     return from_columns(mapping, fp)
 
 
