@@ -163,7 +163,9 @@ class Reader(object):
             self.created = created
             self.modified = modified
 
-            namestr_size = self._read_member_header()[-1]
+            dsname, _, dslabel, _, _, _, _, namestr_size = self._read_member_header()
+            self.dsname = dsname
+            self.dslabel = dslabel
             nvars = self._read_namestr_header()
             self._variables = self._read_namestr_records(nvars, namestr_size)
 
@@ -572,7 +574,7 @@ def ieee_to_ibm(ieee):
 
 
 
-def from_columns(mapping, fp):
+def from_columns(mapping, fp, dataset_name='dataset'):
     '''
     Write columns to the open file opbject ``fp`` in XPT-format.
 
@@ -597,7 +599,7 @@ def from_columns(mapping, fp):
 
     # make a copy to avoid accidentally mutating the passed-in data
     columns = OrderedDict((k, list(v)) for k, v in mapping.items())
-
+    dataset_name_binary = dataset_name.encode('ascii').ljust(8)
 
     ### headers ###
 
@@ -627,8 +629,8 @@ def from_columns(mapping, fp):
 
     # Member header data
     fp.write(b'SAS     '
-             b'dataset ' # dataset name
-             b'SASDATA '
+             + dataset_name.ljust(8).encode('ascii') # dataset name
+             + b'SASDATA '
              + sas_version
              + os_version
              + 24 * b' '
@@ -732,7 +734,7 @@ def from_columns(mapping, fp):
 
 
 
-def from_rows(rows, fp):
+def from_rows(rows, fp, dataset_name='dataset'):
     '''
     Write rows to the open file object ``fp`` in XPT-format.
 
@@ -767,17 +769,17 @@ def from_rows(rows, fp):
         labels = ['x%d' % i for i, cell in enumerate(firstrow)]
 
     columns = OrderedDict(zip(labels, zip_longest(*rows)))
-    return from_columns(columns, fp)
+    return from_columns(columns, fp, dataset_name)
 
 
 
-def from_dataframe(dataframe, fp):
+def from_dataframe(dataframe, fp, dataset_name='dataset'):
     '''
     Write a Pandas Dataframe to an open file-like object, ``fp``, in
     XPT-format.
     '''
     mapping = OrderedDict((label, list(dataframe[label])) for label in dataframe.columns)
-    return from_columns(mapping, fp)
+    return from_columns(mapping, fp, dataset_name)
 
 
 
@@ -813,6 +815,3 @@ if __name__ == '__main__':
         print(','.join(reader.fields))
         for row in reader:
             print(','.join(map(str, row)))
-
-
-

@@ -4,6 +4,7 @@ Tests for ``xport.py``.
 
 import csv
 from collections import OrderedDict, namedtuple
+from datetime import datetime
 import glob
 import math
 import os
@@ -11,6 +12,13 @@ import string
 import unittest
 from io import BytesIO
 import xport
+
+
+
+def test_header(reader, expected_fields, expected_version, expected_dsname):
+    assert reader.fields == expected_fields
+    assert reader.version == expected_version
+    assert reader.dsname == expected_dsname
 
 
 
@@ -59,7 +67,7 @@ class TestStringsDataset(unittest.TestCase):
             reader = xport.Reader(f)
             x, = reader._variables
 
-            assert reader.fields == ('X',)
+            test_header(reader, ('X',), (7, 0), 'DF')
 
             assert x.name == 'X'
             assert x.numeric == False
@@ -89,7 +97,7 @@ class TestKnownValuesDataset(unittest.TestCase):
             reader = xport.Reader(f)
             x, = reader._variables
 
-            assert reader.fields == ('X',)
+            test_header(reader, ('X',), (7, 0), 'DF.VALS')
 
             assert x.name == 'X'
             assert x.numeric == True
@@ -122,7 +130,7 @@ class TestMultipleColumnsDataset(unittest.TestCase):
             reader = xport.Reader(f)
             x, y = reader._variables
 
-            assert reader.fields == ('X', 'Y')
+            test_header(reader, ('X', 'Y'), (7, 0), 'DF.MULTI')
 
             assert x.name == 'X'
             assert x.numeric == False
@@ -204,7 +212,10 @@ class TestFromToColumns(unittest.TestCase):
 
     def roundtrip(self, mapping):
         fp = BytesIO()
-        xport.from_columns(mapping, fp)
+        xport.from_columns(mapping, fp, dataset_name='Ftc Test')
+        fp.seek(0)
+        reader = xport.Reader(fp)
+        test_header(reader, tuple(mapping.keys()), (6, 6), 'Ftc Test')
         fp.seek(0)
         duplicate = xport.to_columns(fp)
         for label, column in mapping.items():
