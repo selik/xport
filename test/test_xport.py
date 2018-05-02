@@ -42,7 +42,7 @@ class TestCSVs(unittest.TestCase):
 
             with open(csvfile) as fcsv, open(xptfile, 'rb') as fxpt:
                 csvreader = csv.reader(fcsv)
-                xptreader = xport.Reader(fxpt)
+                xptreader = xport.reading.Reader(fxpt)
 
                 self.assertEqual(tuple(next(csvreader)), xptreader.fields)
 
@@ -56,7 +56,7 @@ class TestStringsDataset(unittest.TestCase):
 
     def test_header(self):
         with open('test/data/strings.xpt', 'rb') as f:
-            reader = xport.Reader(f)
+            reader = xport.reading.Reader(f)
             x, = reader._variables
 
             assert reader.fields == ('X',)
@@ -69,12 +69,12 @@ class TestStringsDataset(unittest.TestCase):
 
     def test_length(self):
         with open('test/data/strings.xpt', 'rb') as f:
-            assert len(list(xport.Reader(f))) == 2
+            assert len(list(xport.reading.Reader(f))) == 2
 
 
     def test_values(self):
         with open('test/data/strings.xpt', 'rb') as f:
-            it = (row.X for row in xport.NamedTupleReader(f))
+            it = (row.X for row in xport.reading.NamedTupleReader(f))
             assert next(it) == ''.join(chr(i) for i in range(1, 101))
             assert next(it) == ''.join(chr(i) for i in range(101,128))
 
@@ -86,7 +86,7 @@ class TestKnownValuesDataset(unittest.TestCase):
 
     def test_header(self):
         with open('test/data/known_values.xpt', 'rb') as f:
-            reader = xport.Reader(f)
+            reader = xport.reading.Reader(f)
             x, = reader._variables
 
             assert reader.fields == ('X',)
@@ -99,12 +99,12 @@ class TestKnownValuesDataset(unittest.TestCase):
 
     def test_length(self):
         with open('test/data/known_values.xpt', 'rb') as f:
-            assert len(list(xport.Reader(f))) == 2123
+            assert len(list(xport.reading.Reader(f))) == 2123
 
 
     def test_values(self):
         with open('test/data/known_values.xpt', 'rb') as f:
-            it = (row.X for row in xport.NamedTupleReader(f))
+            it = (row.X for row in xport.reading.NamedTupleReader(f))
             for value in [float(e) for e in range(-1000, 1001)]:
                 assert value == next(it)
             for value in [math.pi ** e for e in range(-30, 31)]:
@@ -119,7 +119,7 @@ class TestMultipleColumnsDataset(unittest.TestCase):
 
     def test_header(self):
         with open('test/data/multi.xpt', 'rb') as f:
-            reader = xport.Reader(f)
+            reader = xport.reading.Reader(f)
             x, y = reader._variables
 
             assert reader.fields == ('X', 'Y')
@@ -137,7 +137,7 @@ class TestMultipleColumnsDataset(unittest.TestCase):
 
     def test_length(self):
         with open('test/data/multi.xpt', 'rb') as f:
-            assert len(list(xport.Reader(f))) == 20
+            assert len(list(xport.reading.Reader(f))) == 20
 
 
     def test_values(self):
@@ -146,24 +146,24 @@ class TestMultipleColumnsDataset(unittest.TestCase):
             the true excitement of a large squirrel predicting the weather.
             '''.split()
         with open('test/data/multi.xpt', 'rb') as f:
-            for (i, s), (x, y) in zip(enumerate(strings, 1), xport.Reader(f)):
+            for (i, s), (x, y) in zip(enumerate(strings, 1), xport.reading.Reader(f)):
                 assert (x, y) == (s, i)
 
 
 class TestIEEEtoIBM(unittest.TestCase):
 
     def roundtrip(self, n):
-        ibm = xport.ieee_to_ibm(n)
-        ieee = xport.ibm_to_ieee(ibm)
+        ibm = xport.writing.ieee_to_ibm(n)
+        ieee = xport.reading.ibm_to_ieee(ibm)
         return round(ieee, 9)
 
     def test_overflow(self):
-        with self.assertRaises(xport.Overflow):
-            xport.ieee_to_ibm(16 ** 63)
+        with self.assertRaises(xport.writing.Overflow):
+            xport.writing.ieee_to_ibm(16 ** 63)
 
     def test_underflow(self):
-        with self.assertRaises(xport.Underflow):
-            xport.ieee_to_ibm(16 ** -66)
+        with self.assertRaises(xport.writing.Underflow):
+            xport.writing.ieee_to_ibm(16 ** -66)
 
     def test_nan(self):
         n = float('nan')
@@ -204,9 +204,9 @@ class TestFromToColumns(unittest.TestCase):
 
     def roundtrip(self, mapping):
         fp = BytesIO()
-        xport.from_columns(mapping, fp)
+        xport.writing.from_columns(mapping, fp)
         fp.seek(0)
-        duplicate = xport.to_columns(fp)
+        duplicate = xport.reading.to_columns(fp)
         for label, column in mapping.items():
             for a, b in zip(column, duplicate[label]):
                 self.assertEqual(a, b)
@@ -226,9 +226,9 @@ class TestDumpRows(unittest.TestCase):
 
     def roundtrip(self, rows):
         fp = BytesIO()
-        xport.from_rows(rows, fp)
+        xport.writing.from_rows(rows, fp)
         fp.seek(0)
-        duplicate = xport.to_rows(fp)
+        duplicate = xport.reading.to_rows(fp)
         self.assertEqual(rows, duplicate)
 
     def test_roundtrip_tuples(self):
@@ -249,9 +249,9 @@ class TestDumpRows(unittest.TestCase):
                 OrderedDict([('s', 'universe'), ('n', 3.14)]),
                 OrderedDict([('s', 'everything'), ('n', 42.0)])]
         fp = BytesIO()
-        xport.from_rows(rows, fp)
+        xport.writing.from_rows(rows, fp)
         fp.seek(0)
-        dup = list(xport.DictReader(fp))
+        dup = list(xport.reading.DictReader(fp))
         self.assertEqual(rows, dup)
 
 
