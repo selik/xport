@@ -82,7 +82,9 @@ def test_basic_loads(dataset, bytestring):
     """
     Verify reading dataset columns, name, labels, and formats.
     """
-    assert dataset == xport.v56.loads(bytestring)
+    library = xport.v56.loads(bytestring)
+    member = next(iter(library.values()))
+    assert dataset == member
 
 
 def test_dumps_with_name_labels_and_formats(dataset, bytestring):
@@ -107,8 +109,9 @@ def test_float_round_trip():
         'near-zero': [random.uniform(-1e-6, 1e6) for i in range(n)],
         'large': [random.lognormvariate(1e300, 1) for i in range(n)],
     }
-    converted = xport.v56.loads(xport.v56.dumps(columns))
+    blob = xport.v56.dumps(columns)
+    library = xport.v56.loads(blob)
+    member = next(iter(library.values()))
     for key, originals in columns.items():
-        results = converted[key]
-        for a, b in zip(originals, results):
+        for a, b in zip(originals, member[key]):
             assert math.is_close(a, b, rel_tol=False)
