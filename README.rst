@@ -43,6 +43,17 @@ metadata, but this module's current error-checking will raise a
 
 
 
+Installation
+============
+
+Grab the latest stable version from PyPI.::
+
+.. code:: bash
+
+    $ python -m pip install xport
+
+
+
 Reading XPT
 ===========
 
@@ -125,6 +136,21 @@ I'm happy to fix bugs, improve the interface, or make the module
 faster. Just `submit an issue`_ and I'll take a look.
 
 .. _submit an issue: https://github.com/selik/xport/issues/new
+
+
+
+Contributing
+============
+
+This project is configured to be developed in a Conda environment.::
+
+.. code:: bash
+
+    $ git clone git@github.com:selik/xport.git
+    $ cd xport
+    $ make install  # Install into a Conda environment
+    $ conda activate xport
+    $ make install-html  # Build the docs website
 
 
 Authors
