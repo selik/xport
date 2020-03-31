@@ -46,7 +46,8 @@ metadata, but this module's current error-checking will raise a
 Installation
 ============
 
-Grab the latest stable version from PyPI.::
+This project requires Python v3.7+.  Grab the latest stable version from
+PyPI.::
 
 .. code:: bash
 
