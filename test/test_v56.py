@@ -25,7 +25,6 @@ def dataset():
             'COUNT': [1216, 1761, 2517, 254, 60, 137],
             'TEMP': [98.6, 95.4, 86.7, 93.4, 103.5, 56.7],
         },
-        name='ECON',
         labels={
             'VIT_STAT': 'Vital status',
             'ECON': 'Economic status',
@@ -37,7 +36,9 @@ def dataset():
             'ECON': '$CHAR4',
             'COUNT': 'comma8.0',
             'TEMP': '8.1',
-        }
+        },
+        dataset_name='ECON',
+        dataset_label='Blank-padded dataset label',
     )
 
 
@@ -53,7 +54,7 @@ SAS     SAS     SASLIB  9.3     W32_7PRO                        13NOV15:10:35:08
 HEADER RECORD*******MEMBER  HEADER RECORD!!!!!!!000000000000000001600000000140  \
 HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!000000000000000000000000000000  \
 SAS     ECON    SASDATA 9.3     W32_7PRO                        13NOV15:10:35:08\
-13NOV15:10:35:08                                                                \
+13NOV15:10:35:08                Blank-padded dataset label                      \
 HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!000000000400000000000000000000  \
 \x00\x02\x00\x00\x00\x08\x00\x01VIT_STATVital status                            \
 $w      \x00\x05\x00\x00\x00\x00\x00\x00        \x00\x00\x00\x00\x00\x00\x00\x00\
@@ -93,10 +94,56 @@ def test_dumps_with_name_labels_and_formats(dataset, bytestring):
     """
     assert bytestring == xport.v56.dumps(
         columns=dict(dataset),
-        name=dataset.name,
         labels=dataset.labels,
         formats=dataset.formats,
+        dataset_name=dataset.dataset_name,
+        dataset_label=dataset.dataset_label,
     )
+
+
+def test_dumps_numeric_type_conversion():
+    """
+    Verify numeric types convert to float when writing.
+    """
+    bytestring = xport.v56.dumps({'a': 1})
+    dataset = xport.v56.loads(bytestring)
+    assert isinstance(dataset['a'][0], float)
+
+
+def test_dumps_text_type_conversion():
+    """
+    Verify text types are converted when writing.
+    """
+    # This test is interesting because b'\xff' is not valid Unicode.
+    # https://en.wikipedia.org/wiki/ISO/IEC_8859-1
+    b = b'\xff'
+    s = b.decode('ISO-8859-1')
+    assert xport.v56.dumps({'a': s}) == xport.v56.dumps({'a': b})
+
+
+def test_dumps_invalid_types():
+    """
+    Verify non-numeric, non-text data will raise an error.
+    """
+    with pytest.raises(TypeError):
+        xport.v56.dumps({'a': []})
+
+
+def test_dumps_name_and_label_length_validation():
+    """
+    Verify variable and dataset name and label length.
+    """
+    # Names must be <= 8 characters.
+    # Labels must be <= 40 characters.
+    # SAS v8 Transport Files allow longer labels.
+    with pytest.raises(ValueError):
+        xport.v56.dumps({'a': 1}, daset_name='a' * 9)
+    with pytest.raises(ValueError):
+        xport.v56.dumps({'a': 1}, daset_label='a' * 41)
+    with pytest.raises(ValueError):
+        xport.v56.dumps({'a' * 9: 1})
+    with pytest.raises(ValueError):
+        xport.v56.dumps({'a': 1}, labels={'a': 'a' * 41})
 
 
 def test_float_round_trip():
