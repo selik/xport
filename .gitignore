@@ -1,3 +1,6 @@
+# Test data
+/data/
+
 # Sphinx output
 docs/_build
 *.pdf
