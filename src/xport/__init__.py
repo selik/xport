@@ -8,17 +8,16 @@ import logging
 import pathlib
 
 # Xport Modules
-import xport.cport
-import xport.sas7bdat
 import xport.v56
-import xport.v89
-from xport.v56 import dump, dumps
+from xport.v56 import Library, Member, dump, dumps
 
 from .__about__ import __version__  # noqa: F401
 
 LOG = logging.getLogger(__name__)
 
 __all__ = [
+    'Library',
+    'Member',
     'load',
     'loads',
     'dump',
@@ -26,9 +25,7 @@ __all__ = [
 ]
 
 formats = {
-    'xpt': [xport.v56, xport.v89],
-    'cpt': [xport.cport],
-    'sas7bdat': [xport.sas7bdat],
+    '.xpt': [xport.v56],
 }
 
 

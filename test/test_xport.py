@@ -2,6 +2,9 @@
 Tests for the core interface.
 """
 
+# Community Packages
+import pandas as pd
+
 # Xport Modules
 import xport
 
@@ -11,23 +14,25 @@ def test_basic_round_trip_to_from_file(tmp_path):
     Verify load/dump are reversible.
     """
     filepath = tmp_path / 'example.xpt'
-    data = {
+    df = pd.DataFrame({
         'a': [1, 2],
         'b': [3, 4],
-    }
+    })
+    library = xport.Library(members={'x': xport.Member(observations=df)})
     with open(filepath, 'wb') as f:
-        xport.dump(data, f)
+        xport.dump(library, f)
     with open(filepath, 'rb') as f:
-        assert data == xport.load(f)
+        assert library == xport.load(f)
 
 
 def test_basic_round_trip_to_from_string():
     """
     Verify loads/dumps are reversible.
     """
-    data = {
+    df = pd.DataFrame({
         'a': [1, 2],
         'b': [3, 4],
-    }
-    s = xport.dumps(data)
-    assert data == xport.loads(s)
+    })
+    library = xport.Library(members={'x': xport.Member(observations=df)})
+    s = xport.dumps(library)
+    assert library == xport.loads(s)
