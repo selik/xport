@@ -76,7 +76,9 @@ def test_set_variable_metadata():
     assert c.sas.name == 'EXAMPLE'
     assert c.sas.label == 'Example'
     assert c.sas.type == xport.VariableType.CHARACTER
-    assert c.sas.length == 2
+    assert c.sas.length == c.str.len().max()
+    c.sas.length += 1
+    assert c.sas.length > c.str.len().max()
     assert c.sas.format.name == 'CHAR'
     assert c.sas.format.length == 10
     assert c.sas.format.decimals is None

@@ -71,23 +71,17 @@ class Informat:
 
     @property
     def name(self):
-        """
-        The name of the format.
-        """
+        """The name of the format."""  # noqa: D401
         return self._name
 
     @property
     def length(self):
-        """
-        The width value of the format: ``INFORMATw.``.
-        """
+        """The width value of the format: ``INFORMATw.``."""  # noqa: D401
         return self._length
 
     @property
     def decimals(self):
-        """
-        The ``d`` value of numeric formats: ``INFORMATw.d``.
-        """
+        """The ``d`` value of numeric formats: ``INFORMATw.d``."""  # noqa: D401
         # The documentation states that ``d`` optionally specifies the
         # power of 10 by which to divide numeric input.  If the data
         # contain decimal points, the ``d``` value is ignored.
@@ -108,14 +102,14 @@ class Format(Informat):
 
 
 @pd.api.extensions.register_series_accessor('sas')
-class SASSeriesAccessor:
+class Variable:
     """
-    Access SAS metadata from a Pandas Series.
+    SAS variable metadata.
     """
 
     def __init__(self, series):
         """
-        Initialize the SAS metadata accessor.
+        Initialize the Pandas Series accessor.
         """
         self._series = series
         if series.name is not None:
@@ -182,7 +176,22 @@ class SASSeriesAccessor:
         """
         if self.type == VariableType.NUMERIC:
             return 8
-        return self._series.str.len().max()
+        fact = self._series.str.len().max()
+        jure = getattr(self, '_length', None)
+        if jure:
+            if jure < fact:
+                raise ValueError('Maximum string length greater than SAS variable length')
+            return jure
+        return fact
+
+    @length.setter
+    def length(self, value):
+        if self.type == VariableType.NUMERIC and value != 8:
+            raise NotImplementedError('Numeric variables must be length 8')
+        fact = self._series.str.len().max()
+        if value < fact:
+            raise ValueError(f'Maximum string length greater than {value}')
+        self._length = value
 
     @property
     def number(self):
@@ -228,14 +237,14 @@ class SASSeriesAccessor:
 
 
 @pd.api.extensions.register_dataframe_accessor('sas')
-class SASDataFrameAccessor:
+class Contents:
     """
-    Access SAS metadata from a Pandas DataFrame.
+    SAS dataset metadata.
     """
 
     def __init__(self, dataframe):
         """
-        Initialize the SAS metadata accessor.
+        Initialize the Pandas DataFrame accessor.
         """
         self._df = dataframe
         self.name = self.label = ''
@@ -371,7 +380,7 @@ class Member(pd.DataFrame):
 
 class Library(MutableMapping):
     """
-    A collection of datasets from a SAS file.
+    Collection of datasets from a SAS file.
     """
 
     def __init__(self, members, created=None, modified=None, os='', version=''):
