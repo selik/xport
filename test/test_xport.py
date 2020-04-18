@@ -13,94 +13,151 @@ import pytest
 import xport
 
 
-def test_set_member_metadata():
+class TestVariableMetadata:
     """
-    Verify the Pandas DataFrame accessor allows storing SAS metadata.
+    Verify set/get and validation of variable metadata.
     """
-    metadata = {
-        'name': 'EXAMPLE',
-        'label': 'Example',
-        'type': 'DATA',
-        'created': datetime(2020, 1, 1),
-        'modified': datetime.now(),
-        'os': 'MAC10.15',
-        'version': '9.3',
-    }
-    df = pd.DataFrame()
-    for name, value in metadata.items():
-        setattr(df.sas, name, value)
-    for name, value in metadata.items():
-        assert getattr(df.sas, name) == value
 
-
-def test_member_metadata_validation():
-    """
-    Verify the Pandas DataFrame accessor prevents invalid SAS metadata.
-    """
-    bad_value = {
-        'name': 'a' * 9,
-        'label': 'a' * 41,
-        'type': 'a' * 9,
-        'created': datetime(1800, 1, 1),
-        'modified': datetime(2100, 1, 1),
-        'os': 'a' * 9,
-        'version': 'a' * 9,
-    }
-    bad_type = {
-        'name': 0,
-        'label': b'',
-        'type': 0,
-        'created': '2000-Jan-01',
-        'modified': 1234,
-        'os': 0,
-        'version': (),
-    }
-    df = pd.DataFrame()
-    for name, value in bad_value.items():
+    def test_name(self):
+        v = pd.Series(name='a', dtype='string').sas
+        assert v.name == v.data.name
+        with pytest.warns(UserWarning):
+            v.name = 'a' * 9
         with pytest.raises(ValueError):
-            setattr(df.sas, name, value)
-    for name, value in bad_type.items():
+            v.name = 'a' * 33
+
+    def test_label(self):
+        v = pd.Series(name='a', dtype='string').sas
+        assert v.label == ''
+        v.label = value = 'Example'
+        assert v.label == value
+        with pytest.warns(UserWarning):
+            v.label = 'a' * 41
+        with pytest.raises(ValueError):
+            v.label = 'a' * 257
+
+    def test_type(self):
+        assert pd.Series(dtype='string').sas.type == xport.VariableType.CHARACTER
+        assert pd.Series(dtype='object').sas.type == xport.VariableType.CHARACTER
+        assert pd.Series(dtype='float').sas.type == xport.VariableType.NUMERIC
+        assert pd.Series(dtype='int').sas.type == xport.VariableType.NUMERIC
+        with pytest.raises(TypeError):
+            pd.Series(dtype='bool').sas
+
+    def test_length(self):
+        v = pd.Series(['a', 'ab']).sas
+        assert v.length == v.data.str.len().max()
+        v.length = value = 10
+        assert v.length == value
+        with pytest.raises(ValueError):
+            v.length = 0
+
+    def test_number(self):
+        v = pd.Series(dtype='object').sas
+        assert v.number is None
+        v.number = value = 1
+        assert v.number == value
+
+    def test_position(self):
+        v = pd.Series(dtype='object').sas
+        assert v.position is None
+        v.position = value = 1
+        assert v.position == value
+
+    def test_format(self):
+        v = pd.Series(dtype='object').sas
+        v.format = '$CHAR10.'
+        assert v.format.name == 'CHAR'
+        assert v.format.length == 10
+        assert v.format.decimals is None
+        with pytest.raises(ValueError):
+            v.format = ''
+        with pytest.raises(ValueError):
+            v.format = '$abcdefghi1.'
+
+    def test_iformat(self):
+        v = pd.Series(dtype='object').sas
+        v.iformat = '10.2'
+        assert v.iformat.name == ''
+        assert v.iformat.length == 10
+        assert v.iformat.decimals == 2
+        with pytest.raises(ValueError):
+            v.iformat = '1.2.3'
+
+
+class TestMemberMetadata:
+    """
+    Verify set/get and validation of dataset metadata.
+    """
+
+    def test_name(self):
+        df = pd.DataFrame()
+        df.sas.name = value = 'EXAMPLE1'
+        assert df.sas.name == value
+        with pytest.raises(ValueError):
+            df.sas.name = 'a' * 9
+        with pytest.raises(UnicodeEncodeError):
+            df.sas.name = '\N{snowman}'
         with pytest.raises((TypeError, AttributeError)):
-            setattr(df.sas, name, value)
+            df.sas.name = 0
 
+    def test_label(self):
+        df = pd.DataFrame()
+        df.sas.label = value = 'Example label'
+        assert df.sas.label == value
+        with pytest.raises(ValueError):
+            df.sas.label = 'a' * 41
 
-def test_set_variable_metadata():
-    """
-    Verify the Pandas Series accessor allows storing SAS metadata.
-    """
-    c = pd.Series(['a', 'ab'])
-    c.sas.name = 'EXAMPLE'
-    c.sas.label = 'Example'
-    c.sas.format = '$CHAR10.'
-    c.sas.iformat = '$10.'
-    assert c.sas.name == 'EXAMPLE'
-    assert c.sas.label == 'Example'
-    assert c.sas.type == xport.VariableType.CHARACTER
-    assert c.sas.length == c.str.len().max()
-    c.sas.length += 1
-    assert c.sas.length > c.str.len().max()
-    assert c.sas.format.name == 'CHAR'
-    assert c.sas.format.length == 10
-    assert c.sas.format.decimals is None
-    assert pd.Series([1]).sas.type == xport.VariableType.NUMERIC
+    def test_type(self):
+        df = pd.DataFrame()
+        df.sas.type = value = 'DATA'
+        assert df.sas.type == value
+        with pytest.raises(ValueError):
+            df.sas.type = 'a' * 9
 
+    def test_created(self):
+        df = pd.DataFrame()
+        df.sas.created = value = datetime.now()
+        assert df.sas.created == value
+        with pytest.raises(ValueError):
+            df.sas.created = datetime(1800, 1, 1)
+        with pytest.raises((TypeError, AttributeError)):
+            df.sas.created = '2000-Jan-01'
 
-def test_variable_metadata_validation():
-    """
-    Verify the Pandas Series accessor prevents invalid SAS metadata.
-    """
-    c = pd.Series(dtype='object')
-    with pytest.warns(UserWarning):
-        c.sas.name = 'a' * 9
-    with pytest.raises(ValueError):
-        c.sas.name = 'a' * 33
-    with pytest.warns(UserWarning):
-        c.sas.label = 'a' * 41
-    with pytest.raises(ValueError):
-        c.sas.label = 'a' * 257
-    with pytest.raises(ValueError):
-        c.sas.format = ''
-    with pytest.raises(ValueError):
-        c.sas.format = '$abcdefghi1.'
-    with pytest.raises(ValueError):
-        c.sas.iformat = '1.2.3'
+    def test_modified(self):
+        df = pd.DataFrame()
+        df.sas.modified = value = datetime(1920, 1, 1)
+        assert df.sas.modified == value
+        with pytest.raises(ValueError):
+            df.sas.modified = datetime(2100, 1, 1)
+        with pytest.raises(TypeError):
+            df.sas.modified = 1
+
+    def test_os(self):
+        df = pd.DataFrame()
+        df.sas.os = value = 'MAC10.15'
+        assert df.sas.os == value
+        with pytest.raises(ValueError):
+            df.sas.os = 'a' * 9
+
+    def test_version(self):
+        df = pd.DataFrame()
+        df.sas.os = value = '9.3'
+        assert df.sas.os == value
+        with pytest.raises(ValueError):
+            df.sas.version = 'a' * 9
+
+    def test_numbers(self):
+        df = pd.DataFrame(columns=['a', 'b'], dtype='float')
+        for i, k in enumerate(reversed(df)):
+            df[k].sas.number = i
+        with pytest.raises(ValueError):
+            df.sas
+
+    def test_positions(self):
+        df = pd.DataFrame({'a': ['b']}, dtype='string')
+        for k in df:
+            df[k].sas.length = 10
+            df[k].sas.position = 0
+        with pytest.raises(ValueError):
+            df.sas

@@ -46,7 +46,7 @@ class Informat:
 
     patterns = {
         'Character': re.compile(r'^\$(?P<name>[A-Z0-9]*?)(?P<w>\d+)\.$', re.IGNORECASE),
-        'Numeric': re.compile(r'^(?P<name>[A-Z0-9]*?)(?P<w>\d+)\.(?P<d>)?$', re.IGNORECASE),
+        'Numeric': re.compile(r'^(?P<name>[A-Z0-9]*?)(?P<w>\d+)\.(?P<d>\d*)$', re.IGNORECASE),
         'Date/Time': re.compile(r'^(?P<name>[A-Z0-9]*?)(?P<w>\d+)\.$', re.IGNORECASE),
     }
 
@@ -111,13 +111,18 @@ class Variable:
         """
         Initialize the Pandas Series accessor.
         """
-        self._series = series
+        self.data = series
         if series.name is not None:
-            self.name = self.label = series.name
+            self.name = series.name
         else:
-            self.name = self.label = ''
+            self.name = ''
+        self.label = ''
         self.format = None
         self.iformat = None
+        self.type  # Force type validation.
+
+    def __repr__(self):
+        return '<Variable name={self.name}>'
 
     @property
     def name(self):
@@ -162,12 +167,12 @@ class Variable:
         """
         SAS variable type, either numeric or character.
         """
-        dtype = self._series.dtype
+        dtype = self.data.dtype
         if dtype.kind in {'f', 'i'}:
             return VariableType.NUMERIC
         elif dtype.kind == 'O':
             return VariableType.CHARACTER
-        raise TypeError(f'{type(self._series).__name__}.dtype {dtype} not supported')
+        raise TypeError(f'{type(self.data).__name__}.dtype {dtype} not supported')
 
     @property
     def length(self):
@@ -176,7 +181,7 @@ class Variable:
         """
         if self.type == VariableType.NUMERIC:
             return 8
-        fact = self._series.str.len().max()
+        fact = self.data.str.len().max()
         jure = getattr(self, '_length', None)
         if jure:
             if jure < fact:
@@ -188,7 +193,7 @@ class Variable:
     def length(self, value):
         if self.type == VariableType.NUMERIC and value != 8:
             raise NotImplementedError('Numeric variables must be length 8')
-        fact = self._series.str.len().max()
+        fact = self.data.str.len().max()
         if value < fact:
             raise ValueError(f'Maximum string length greater than {value}')
         self._length = value
@@ -198,14 +203,26 @@ class Variable:
         """
         Index of the SAS variable within the dataset.
         """
-        raise NotImplementedError('Check ``DataFrame.sas.contents`` instead')
+        return getattr(self, '_number', None)
+
+    @number.setter
+    def number(self, value):
+        if value < 1:
+            raise ValueError(f'Variable number {value} should be a natural number')
+        self._number = int(value)
 
     @property
     def position(self):
         """
         Byte-index of the SAS variable field within an observation.
         """
-        raise NotImplementedError('Check ``DataFrame.sas.contents`` instead')
+        return getattr(self, '_position', None)
+
+    @position.setter
+    def position(self, value):
+        if value < 0:
+            raise ValueError(f'Variable position {value} should be positive')
+        self._position = int(value)
 
     @property
     def format(self):
@@ -246,6 +263,19 @@ class Contents:
         """
         Initialize the Pandas DataFrame accessor.
         """
+        variables = [dataframe[k].sas for k in dataframe]
+        for i, v in enumerate(variables):
+            if v.number is None:
+                v.number = i
+            elif v.number != i:
+                raise ValueError('SAS variable metadata does not match column order')
+        i = 0
+        for v in variables:
+            if v.position is None:
+                v.position = i
+            elif v.position != i:
+                raise ValueError('SAS variable metadata does not match field positions')
+            i += v.length
         self._df = dataframe
         self.name = self.label = ''
         self.type = 'DATA'
@@ -253,23 +283,23 @@ class Contents:
         self.os = ''
         self.version = ''
 
-    @property
-    def contents(self):
-        """
-        Variable metadata, such as label, format, number, and position.
-        """
-        # TODO: Can this dataframe be read-only?
-        df = pd.DataFrame({
-            'Variable': [c.sas.name for k, c in self._df.items()],
-            'Type': [c.sas.type for k, c in self._df.items()],
-            'Length': [c.sas.length for k, c in self._df.items()],
-            'Format': [str(c.sas.format) for k, c in self._df.items()],
-            'Informat': [str(c.sas.informat) for k, c in self._df.items()],
-            'Label': [c.sas.label for k, c in self._df.items()],
-        })
-        df.index.name = '#'
-        df['Position'] = df['Length'].cumsum()
-        return df
+    # @property
+    # def contents(self):
+    #     """
+    #     Variable metadata, such as label, format, number, and position.
+    #     """
+    #     # TODO: Can this dataframe be read-only?
+    #     df = pd.DataFrame({
+    #         'Variable': [c.sas.name for k, c in self._df.items()],
+    #         'Type': [c.sas.type for k, c in self._df.items()],
+    #         'Length': [c.sas.length for k, c in self._df.items()],
+    #         'Position': [c.sas.position for k, c in self._df.items()]
+    #         'Format': [str(c.sas.format) for k, c in self._df.items()],
+    #         'Informat': [str(c.sas.informat) for k, c in self._df.items()],
+    #         'Label': [c.sas.label for k, c in self._df.items()],
+    #     })
+    #     df.index.name = '#'
+    #     return df
 
     @property
     def name(self):
