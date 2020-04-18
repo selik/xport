@@ -10,6 +10,10 @@ __all__ = [
 
 
 class Version(namedtuple('Version', 'major minor patch')):
+    """
+    Version information.
+    """
+
     def __str__(self):
         return f'v{".".join(map(str, self))}'
 
