@@ -42,7 +42,6 @@ clean:					# Remove all build and test artifacts
 	rm -rf test/__pycache__
 	rm -rf test/*/__pycache__
 	rm -rf test/**/__pycache__
-	docker image prune -f
 
 html:
 	$(MAKE) -C docs html
@@ -120,7 +119,6 @@ miniconda-update: $(conda_exe)
 conda-create: $(miniconda_env_path) miniconda-update
 	PIP_SRC=$(miniconda_env_path)/src \
 		$(conda_exe) env create --name $(venv_name) --file environment.yml --force
-	$(MAKE) nlp-data
 	@$(conda_activate) && echo "Done, installed at `which python`"
 
 conda-update: miniconda-update 		# Update the Conda virtual environment
