@@ -10,6 +10,7 @@ The SAS V5 Transport File format, also called XPORT, or simply XPT, ...
 # Floating point data are IBM-style double format.
 
 # Standard Library
+import itertools
 import json
 import logging
 import math
@@ -21,6 +22,9 @@ from datetime import datetime
 
 # Community Packages
 import pandas as pd
+
+# Xport Modules
+import xport
 
 __all__ = [
     'load',
@@ -177,9 +181,9 @@ def ieee_to_ibm(ieee):
     return struct.pack('>Q', sign | exponent | mantissa)
 
 
-class Namestr(dict):
+class Namestr(xport.Variable):
     """
-    Variable metadata from a SAS XPORT file member.
+    Variable metadata from a SAS Version 5 or 6 Transport (XPORT) file.
     """
 
     # Here is the C structure definition for the namestr record:
@@ -209,7 +213,10 @@ class Namestr(dict):
     # Under VAX/VMS, the size will be 136 bytes, meaning that the 'rest'
     # variable may be truncated.
 
-    fmts = {140: '>hhhh8s40s8shhh2s8shhl52s', 136: '>hhhh8s40s8shhh2s8shhl48s'}
+    fmts = {
+        140: '>hhhh8s40s8shhh2s8shhl52s',
+        136: '>hhhh8s40s8shhh2s8shhl48s',
+    }
 
     @classmethod
     def unpack(cls, bytestring):
@@ -222,132 +229,70 @@ class Namestr(dict):
             warnings.warn('File written on VAX/VMS, module behavior not tested')
         fmt = cls.fmts[size]
         tokens = struct.unpack(fmt, bytestring)
-        info = {
-            'name': tokens[4].strip(b'\x00').decode('ascii').rstrip(),
-            'label': tokens[5].strip(b'\x00').decode('ascii').rstrip(),
-            'type': {
-                1: 'Numeric',
-                2: 'Character'
-            }[tokens[0]],
-            'number': tokens[3],
-            'position': tokens[14],
-            'length': tokens[2],
-            'format': {
-                'name': tokens[6].strip(b'\x00').decode('ascii').strip(),
-                'length': tokens[7],
-                'decimals': tokens[8],
-                'justify': {
-                    0: 'left',
-                    1: 'right'
-                }[tokens[9]],
-            },
-            'iformat': {
-                'name': tokens[11].strip(b'\x00').decode('ascii').strip(),
-                'length': tokens[12],
-                'decimals': tokens[13],
-            },
-        }
-        LOG.debug(f'Unpacked namestr {json.dumps(info, indent=2)}')
-        return Namestr(**info)
+        vtype = xport.VariableType(tokens[0])
+        v = cls(
+            name=tokens[4].strip(b'\x00').decode('ascii').rstrip(),
+            dtype='float' if vtype == xport.VariableType.NUMERIC else 'string',
+        )
+        v.sas_label = tokens[5].strip(b'\x00').decode('ascii').rstrip()
+        v._sas_format = xport.Format.from_struct_tokens(*tokens[6:10])
+        v._sas_iformat = xport.Informat.from_struct_tokens(*tokens[11:14])
+        v.sas_variable_number = tokens[3]
+        v.sas_variable_position = tokens[14]
+        v.sas_variable_length = tokens[2]
+        LOG.debug(f'Parsed namestr {v}')
+        return v
 
     def __bytes__(self):
         """
         XPORT-format bytes string.
         """
         fmt = self.fmts[140]
+        name = self.sas_name.encode('ascii')
+        if len(name) > 8:
+            raise ValueError('Name {name} longer than 8 characters')
+        label = self.sas_label.encode('ascii')
+        if len(label) > 40:
+            raise ValueError(f'Label {label} longer than 40 characters')
         return struct.pack(
             fmt,
-            1 if self.get('type') == 'Numeric' else 2,
+            self.sas_variable_type,
             0,  # "Hash" of name, always 0.
-            self['length'],
-            self['number'],
-            self['name'].encode('ascii')[:8],
-            self.get('label', '').encode('ascii')[:40],
-            b'',  # TODO: format name
-            0,  # TODO: format field length
-            0,  # TODO: format n decimals
-            0,  # TODO: 0 if self.format.justify == 'left' else 1
+            self.sas_variable_length,
+            self.sas_variable_number,
+            name.ljust(8),
+            label.ljust(40),
+            self.sas_format.name.encode('ascii').ljust(8),
+            self.sas_format.length,
+            self.sas_format.decimals,
+            self.sas_format.justify,
             b'',  # Unused
-            b'',  # TODO: iformat name
-            0,  # TODO: iformat length
-            0,  # TODO: iformat n decimals
-            self['position'],
+            self.sas_iformat.name.encode('ascii').ljust(8),
+            self.sas_iformat.length,
+            self.sas_iformat.decimals,
+            self.sas_variable_position,
             b'',  # Padding
         )
 
 
-class Observation:
+class Member(xport.Dataset):
     """
-    A record from a SAS XPORT library member.
+    SAS library member metadata from a SAS Version 5 or 6 Transport file.
     """
 
-    # TODO: Change these class methods to Member instance methods.
-    #       Then delete this class.
-
-    # 9. Data records
-    #    Data records are streamed in the same way that namestrs are.
-    #    There is ASCII blank padding at the end of the last record if
-    #    necessary. There is no special trailing record.
-
-    decoders = {
-        'Numeric': ibm_to_ieee,
-        'Character': lambda s: s.strip(b'\x00').decode('ascii').rstrip()
-    }
-
-    @classmethod
-    def parser(cls, namestrs):
+    def __init__(self, contents):
         """
-        Make an observation parser for a collection of namestrs.
+        Initialize a MemberHeader from a parent Contents instance.
         """
-        names = [v['name'] for v in namestrs]
-        sizes = [v['length'] for v in namestrs]
-        types = [v['type'] for v in namestrs]
-        parsers = [cls.decoders[t] for t in types]
-        fmt = ''.join(f'{x}s' for x in sizes)
-        stride = sum(sizes)
-
-        def finditer(bytestring):
-            """
-            Parse observations from a byte string.
-            """
-            if stride == 0:
-                return
-            sentinel = b' ' * stride
-            for i in range(0, len(bytestring), stride):
-                chunk = bytestring[i:i + stride]
-                LOG.debug(f'Parsing observation from {chunk}')
-                if len(chunk) != stride or chunk == sentinel:
-                    LOG.debug(f'End padding {chunk}')
-                    break
-                tokens = struct.unpack(fmt, chunk)
-                obs = {n: f(b) for n, f, b in zip(names, parsers, tokens)}
-                LOG.debug(f'Parsed observation {json.dumps(obs, indent=2)}')
-                yield obs
-
-        return finditer
-
-    @classmethod
-    def formatter(cls, namestrs):
-        """
-        Make an observation formatter for a collection of namestrs.
-        """
-        # names = [v['name'] for v in namestrs]
-        sizes = [v['length'] for v in namestrs]
-        fmt = ''.join(f'{x}s' for x in sizes)
-
-        def bytes_(t):
-            """
-            Convert an observation (tuple) to a bytes string.
-            """
-            return struct.pack(fmt, *t)
-
-        return bytes_
-
-
-class Member(Mapping):
-    """
-    A SAS dataset as a collection of columns.
-    """
+        self.data = contents.data
+        self.name = contents.name
+        self.label = contents.label
+        self.type = contents.type
+        self.os = contents.os
+        self.version = contents.version
+        self.created = contents.created
+        self.modified = contents.modified
+        contents.data.sas = self
 
     # 4. Member header records
     #    Both of these records occur for every member in the file.
@@ -407,18 +352,6 @@ class Member(Mapping):
     #       HEADER RECORD*******OBS HEADER RECORD!!!!!!!
     #       000000000000000000000000 000000
 
-    template = f'''\
-HEADER RECORD{'*' * 7}MEMBER  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
-HEADER RECORD{'*' * 7}DSCRPTR HEADER RECORD{'!' * 7}{'0' * 30}  \
-SAS     %(name)8bSASDATA %(version)8b%(os)8b{' ' * 24}%(created)16b\
-%(modified)16b{' ' * 16}%(label)40b%(type)8b\
-HEADER RECORD{'*' * 7}NAMESTR HEADER RECORD{'!' * 7}{'0' * 6}\
-%(n_variables)04d{'0' * 20}  \
-%(namestrs)b\
-HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
-%(observations)b\
-'''.encode('ascii')
-
     pattern = re.compile(
         # Header line 1
         rb'HEADER RECORD\*{7}MEMBER  HEADER RECORD\!{7}0{17}'
@@ -440,188 +373,166 @@ HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
         re.DOTALL,
     )
 
-    def __init__(
-        self,
-        observations=None,
-        namestrs=None,
-        name=None,
-        label=None,
-        type=None,
-        created=None,
-        modified=None,
-        os=None,
-        sas_version=None
-    ):
-        """
-        Initialize a SAS data library member.
-        """
-        if observations is None:
-            observations = pd.DataFrame()
-        if namestrs is None:
-            namestrs = {}
-            for variable in observations:
-                namestrs[variable] = Namestr(name=variable, )
-        for i, (variable, namestr) in enumerate(namestrs.items(), 1):
-            column = observations[variable]
-            namestr.setdefault('name', variable)
-            namestr.setdefault('label', '')
-            if column.dtype == 'object':
-                namestr.setdefault('type', 'Character')
-                namestr.setdefault('length', column.str.len().max())
-            else:
-                namestr.setdefault('type', 'Numeric')
-                namestr.setdefault('length', 8)
-            namestr.setdefault('number', i)
-        i = 0
-        for namestr in sorted(namestrs.values(), key=lambda n: n['number']):
-            namestr.setdefault('position', i)
-            i += namestr['length']
-        if name is None:
-            name = ''
-        if label is None:
-            label = name
-        if type is None:
-            type = 'DATA'
-        if created is None:
-            created = datetime.now()
-        if modified is None:
-            modified = created
-        if os is None:
-            os = ''
-        if sas_version is None:
-            sas_version = ''
-
-        if type == 'VIEW':
-            raise NotImplementedError('SAS data views are not supported')
-
-        self.name = name
-        self.label = label
-        self.type = type
-        self.created = created
-        self.modified = modified
-        self.os = os
-        self.sas_version = sas_version
-        self.namestrs = namestrs
-        self.observations = observations
-
     @classmethod
-    def finditer(cls, bytestring, Namestr=Namestr):
+    def finditer(cls, bytestring):
         """
-        Parse SAS library members from a byte string in XPORT format.
+        Parse SAS library member headers from a byte string.
         """
+        mview = memoryview(bytestring)
         LOG.debug('Searching for library members ...')
-        matches = cls.pattern.finditer(bytestring)
-        try:
-            mo = next(matches)
-        except StopIteration:
+        matches = list(cls.pattern.finditer(mview))
+
+        if not matches:
             warnings.warn('No library members found')
-            LOG.debug(f'Byte string begins with\n{bytestring[:80 * 6]}')
+            lines = [mview[i * 80:(i + 1) * 80] for i in range(6)]
+            LOG.debug(f'Byte string begins with' + '\n%s' * len(lines), *lines)
             return
-        while True:
-            observations_index = mo.end(0)
-            namestrs = []
+
+        headers = []
+        for mo in matches:
+            LOG.info(f'Found library member {mo["name"]!r}')
+            variables = {}
             stride = int(mo['descriptor_size'])
             for i in range(0, len(mo['namestrs']), stride):
                 b = mo['namestrs'][i:i + stride]
                 if len(b) == stride:
-                    namestrs.append(Namestr.unpack(b))
-            if len(namestrs) != int(mo['n_variables']):
-                raise ValueError(f'Expected {mo["n_variables"]}, got {len(namestrs)}')
-            obs_finditer = Observation.parser(namestrs)
-            kwds = dict(
-                name=mo['name'].strip(b'\x00').decode('ascii').strip(),
-                label=mo['label'].strip(b'\x00').decode('ascii').strip(),
-                type=mo['type'].strip(b'\x00').decode('ascii').strip(),
-                os=mo['os'].strip(b'\x00').decode('ascii').strip(),
-                sas_version=tuple(int(s) for s in mo['version'].strip().split(b'.') if s),
-                created=strptime(mo['created']),
-                modified=strptime(mo['modified']),
-                namestrs={n['name']: n
-                          for n in namestrs},
-            )
-            LOG.debug(f'Found library member {kwds["name"]!r}')
-            try:
-                mo = next(matches)
-            except StopIteration:
+                    v = Namestr.unpack(b)
+                    variables[v.name] = v
+            if len(variables) != int(mo['n_variables']):
+                raise ValueError(f'Expected {mo["n_variables"]}, got {len(variables)}')
+            data = {v.name: v.data for v in sorted(variables.values(), key=lambda v: v.number)}
+            df = xport.Member(data)
+            for k, series in df.items():
+                series.sas = variables[k]
+            h = cls(df.sas)
+            h.name = mo['name'].strip(b'\x00').decode('ascii').strip()
+            h.label = mo['label'].strip(b'\x00').decode('ascii').strip()
+            h.type = mo['type'].strip(b'\x00').decode('ascii').strip()
+            h.os = mo['os'].strip(b'\x00').decode('ascii').strip()
+            h.version = mo['version'].strip().decode('ascii')
+            h.created = strptime(mo['created'])
+            h.modified = strptime(mo['modified'])
+            LOG.debug(f'Parsed member header {h.name} with {len(variables)} variables')
+            headers.append(h)
+
+        ends = [mo.end(0) for mo in matches]
+        starts = [mo.start(0) for mo in matches]
+        chunks = (mview[i:j] for i, j in zip(ends, starts[1:] + [None]))
+        for h, chunk in zip(headers, chunks):
+            rows = pd.DataFrame(h.parse_observations(chunk))
+            h.data = pd.concat([h.data, rows])
+            # BUG: Argh! Every time we change columns, we lose the series accessors.
+            h.data.sas = h
+            LOG.info('Parsed dataframe for %s\n%s', h.name, h.info())
+            yield h
+
+    # 9. Data records
+    #    Data records are streamed in the same way that namestrs are.
+    #    There is ASCII blank padding at the end of the last record if
+    #    necessary. There is no special trailing record.
+
+    decoders = {
+        xport.VariableType.NUMERIC: ibm_to_ieee,
+        xport.VariableType.CHARACTER: lambda s: s.strip(b'\x00').decode('ascii').rstrip()
+    }
+
+    def parse_observations(self, bytestring):
+        """
+        Parse observations from a bytes string.
+        """
+        mview = memoryview(bytestring)
+        df = self.data
+        variables = [df[k].sas for k in df]
+        names = [v.name for v in variables]
+        parsers = [self.decoders[v.type] for v in variables]
+        sizes = [v.length for v in variables]
+        fmt = ''.join(f'{x}s' for x in sizes)
+        stride = sum(sizes)
+        LOG.info(f'Observation struct fmt {fmt}')
+
+        if stride == 0:
+            return
+        sentinel = b' ' * stride
+        for i in range(0, len(mview), stride):
+            chunk = mview[i:i + stride]
+            LOG.debug(f'Parsing observation from {bytes(chunk)}')
+            if len(chunk) != stride or chunk == sentinel:
+                LOG.debug(f'End padding {chunk}')
                 break
-            chunk = bytestring[observations_index:mo.start(0)]
-            df = pd.DataFrame(obs_finditer(chunk), columns=list(kwds['namestrs']))
-            yield Member(observations=df, **kwds)
-        # Last chunk goes until EOF
-        chunk = bytestring[observations_index:]
-        df = pd.DataFrame(obs_finditer(chunk), columns=list(kwds['namestrs']))
-        yield Member(observations=df, **kwds)
-
-    def __repr__(self):
-        """
-        REPL-format string.
-        """
-        fmt = '<{cls} columns={keys}>'
-        return fmt.format(
-            cls=type(self).__name__,
-            keys=list(self),
-        )
-
-    def __bytes__(self):
-        """
-        XPORT-format bytes string.
-        """
-        bytes_ = Observation.formatter(self.namestrs.values())
-        df = self.observations.copy()
-        for k, dtype in df.dtypes.iteritems():
-            if dtype == 'object':
-                df[k] = df[k].str.encode('ascii')
-            else:
-                df[k] = df[k].map(ieee_to_ibm)
-        observations = b''.join(bytes_(t) for t in df.itertuples(index=False, name=None))
-        if len(observations) % 80:
-            observations += b' ' * (80 - len(observations) % 80)
-        namestrs = b''.join(bytes(n) for n in self.namestrs.values())
-        if len(namestrs) % 80:
-            namestrs += b' ' * (80 - len(namestrs) % 80)
-        return self.template % {
-            b'name': self.name.encode('ascii')[:8],
-            b'label': self.label.encode('ascii')[:8],
-            b'type': self.type.encode('ascii')[:8],
-            b'n_variables': len(self.namestrs),
-            b'os': self.os.encode('ascii')[:8],
-            b'version': '.'.join(self.sas_version).encode('ascii')[:8],
-            b'created': self.created.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
-            b'modified': self.modified.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
-            b'namestrs': namestrs,
-            b'observations': observations,
-        }
-
-    def __getitem__(self, name):
-        """
-        Get a column by name.
-        """
-        return self.observations[name]
-
-    def __iter__(self):
-        """
-        Get iterator of column names.
-        """
-        return iter(self.observations)
-
-    def __len__(self):
-        """
-        Get the number of columns in the library member.
-        """
-        return len(self.observations)
-
-    def __eq__(self, other):
-        """
-        Compare equality.
-        """
-        if self.observations.empty:
-            return (other.observations.empty and set(self) == set(other))
-        return (self.observations == other.observations).all(axis=None)
+            tokens = struct.unpack(fmt, chunk)
+            obs = {n: f(b) for n, f, b in zip(names, parsers, tokens)}
+            LOG.debug(f'Parsed observation {json.dumps(obs, indent=2)}')
+            yield obs
 
 
-class Library(Mapping):
+# class Member(xport.Member):
+#     """
+#     SAS library member from a SAS Version 5 or 6 Transport (XPORT) file.
+#     """
+
+#     @classmethod
+#     def formatter(cls, namestrs):
+#         """
+#         Make an observation formatter for a collection of namestrs.
+#         """
+#         # names = [v['name'] for v in namestrs]
+#         sizes = [v['length'] for v in namestrs]
+#         fmt = ''.join(f'{x}s' for x in sizes)
+
+#         def bytes_(t):
+#             """
+#             Convert an observation (tuple) to a bytes string.
+#             """
+#             return struct.pack(fmt, *t)
+
+#         return bytes_
+
+#     template = f'''\
+# HEADER RECORD{'*' * 7}MEMBER  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
+# HEADER RECORD{'*' * 7}DSCRPTR HEADER RECORD{'!' * 7}{'0' * 30}  \
+# SAS     %(name)8bSASDATA %(version)8b%(os)8b{' ' * 24}%(created)16b\
+# %(modified)16b{' ' * 16}%(label)40b%(type)8b\
+# HEADER RECORD{'*' * 7}NAMESTR HEADER RECORD{'!' * 7}{'0' * 6}\
+# %(n_variables)04d{'0' * 20}  \
+# %(namestrs)b\
+# HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
+# %(observations)b\
+# '''.encode('ascii')
+
+#     def __bytes__(self):
+#         """
+#         XPORT-format bytes string.
+#         """
+#         bytes_ = Observation.formatter(self.namestrs.values())
+#         df = self.observations.copy()
+#         for k, dtype in df.dtypes.iteritems():
+#             if dtype == 'object':
+#                 df[k] = df[k].str.encode('ascii')
+#             else:
+#                 df[k] = df[k].map(ieee_to_ibm)
+#         observations = b''.join(bytes_(t) for t in df.itertuples(index=False, name=None))
+#         if len(observations) % 80:
+#             observations += b' ' * (80 - len(observations) % 80)
+#         namestrs = b''.join(bytes(n) for n in self.namestrs.values())
+#         if len(namestrs) % 80:
+#             namestrs += b' ' * (80 - len(namestrs) % 80)
+#         return self.template % {
+#             b'name': self.name.encode('ascii')[:8],
+#             b'label': self.label.encode('ascii')[:8],
+#             b'type': self.type.encode('ascii')[:8],
+#             b'n_variables': len(self.namestrs),
+#             b'os': self.os.encode('ascii')[:8],
+#             b'version': '.'.join(self.sas_version).encode('ascii')[:8],
+#             b'created': self.created.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
+#             b'modified': self.modified.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
+#             b'namestrs': namestrs,
+#             b'observations': observations,
+#         }
+
+
+class Library(xport.Library):
     """
-    A collection of datasets from a SAS file.
+    Collection of datasets from a SAS Version 5 or 6 Transport file.
     """
 
     # 1. The first header record:
@@ -651,14 +562,6 @@ class Library(Mapping):
     #    2-digit year, be prepared to deal with dates in the 1900s or
     #    the 2000s.
 
-    template = f'''\
-HEADER RECORD{'*' * 7}LIBRARY HEADER RECORD{'!' * 7}{'0' * 30}  \
-SAS     SAS     SASLIB  \
-%(version)8b%(os)8b{' ' * 24}%(created)16b\
-%(modified)16b{' ' * 64}\
-%(members)b\
-'''.encode('ascii')
-
     pattern = re.compile(
         rb'HEADER RECORD\*{7}LIBRARY HEADER RECORD\!{7}0{30} {2}'
         rb'SAS {5}SAS {5}SASLIB {2}'
@@ -668,93 +571,46 @@ SAS     SAS     SASLIB  \
         re.DOTALL,
     )
 
-    def __init__(self, members=None, created=None, modified=None, os=None, sas_version=None):
-        """
-        Initialize a SAS data library.
-        """
-        if members is None:
-            members = {}
-        if created is None:
-            created = datetime.now()
-        if modified is None:
-            modified = created
-        if sas_version is None:
-            sas_version = ''
-        if os is None:
-            os = ''
-        self.created = created
-        self.modified = modified
-        self.os = os
-        self.sas_version = sas_version
-        self.members = members
-        for name, member in members.items():
-            if not member.name:
-                member.name = name
-
     @classmethod
-    def match(cls, bytestring, Member=Member):
+    def match(cls, bytestring):
         """
         Parse a SAS XPORT document from a byte string.
         """
-        mo = cls.pattern.match(bytestring)
+        mview = memoryview(bytestring)
+        lines = [mview[i * 80:(i + 1) * 80] for i in range(4)]
+        LOG.debug(f'Document begins with' + '\n%s' * len(lines), *lines)
+        mo = cls.pattern.match(mview)
         if mo is None:
-            LOG.error('Failed to match byte string with header\n%s', bytestring[:80 * 4])
             raise ValueError('Document does not match SAS Version 5 or 6 Transport (XPORT) format')
+        members = {header.name: header.data for header in MemberHeader.finditer(mo['members'])}
         return Library(
-            members={m.name: m
-                     for m in Member.finditer(mo['members'])},
-            os=mo['os'].strip(b'\x00').decode('ascii').strip(),
-            sas_version=tuple(int(s) for s in mo['version'].strip().split(b'.') if s),
+            members=members,
             created=strptime(mo['created']),
             modified=strptime(mo['modified']),
+            os=mo['os'].strip(b'\x00').decode('ascii').strip(),
+            version=mo['version'].strip(b'\x00').decode('ascii').strip(),
         )
 
-    def __repr__(self):
-        """
-        REPL-format string.
-        """
-        fmt = '<{cls} members={members}>'
-        return fmt.format(
-            cls=type(self).__name__,
-            members={k: repr(v)
-                     for k, v in self.items()},
-        )
 
-    def __bytes__(self):
-        """
-        XPORT-format bytes string.
-        """
-        return self.template % {
-            b'version': '.'.join(self.sas_version).encode('ascii')[:8],
-            b'os': self.os.encode('ascii')[:8],
-            b'created': self.created.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
-            b'modified': self.modified.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
-            b'members': b''.join(bytes(member) for member in self.values()),
-        }
+#     template = f'''\
+# HEADER RECORD{'*' * 7}LIBRARY HEADER RECORD{'!' * 7}{'0' * 30}  \
+# SAS     SAS     SASLIB  \
+# %(version)8b%(os)8b{' ' * 24}%(created)16b\
+# %(modified)16b{' ' * 64}\
+# %(members)b\
+# '''.encode('ascii')
 
-    def __getitem__(self, name):
-        """
-        Get a member by name.
-        """
-        return self.members[name]
-
-    def __iter__(self):
-        """
-        Get iterator of member names.
-        """
-        return iter(self.members)
-
-    def __len__(self):
-        """
-        Get the number of members in the library.
-        """
-        return len(self.members)
-
-    def __eq__(self, other):
-        """
-        Compare equality.
-        """
-        return (set(self) == set(other) and all(self[k] == other[k] for k in self))
+#     def __bytes__(self):
+#         """
+#         XPORT-format bytes string.
+#         """
+#         return self.template % {
+#             b'version': '.'.join(self.sas_version).encode('ascii')[:8],
+#             b'os': self.os.encode('ascii')[:8],
+#             b'created': self.created.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
+#             b'modified': self.modified.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
+#             b'members': b''.join(bytes(member) for member in self.values()),
+#         }
 
 
 def load(fp):

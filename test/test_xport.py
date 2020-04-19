@@ -30,13 +30,13 @@ class TestInformat:
         assert xport.Informat.from_spec('$3.') == xport.Informat(
             name='',
             length=3,
-            decimals=None,
+            decimals=0,
             vtype=xport.VariableType.CHARACTER,
         )
         assert xport.Informat.from_spec('$CHAR10.') == xport.Informat(
             name='CHAR',
             length=10,
-            decimals=None,
+            decimals=0,
             vtype=xport.VariableType.CHARACTER,
         )
 
@@ -53,7 +53,7 @@ class TestInformat:
         assert xport.Informat.from_spec('dollar26.') == xport.Informat(
             name='DOLLAR',
             length=26,
-            decimals=None,
+            decimals=0,
             vtype=xport.VariableType.NUMERIC,
         )
 
@@ -108,7 +108,7 @@ class TestFormat:
         assert xport.Format.from_spec('$3.', justify) == xport.Format(
             name='',
             length=3,
-            decimals=None,
+            decimals=0,
             vtype=xport.VariableType.CHARACTER,
             justify=justify,
         )
@@ -116,7 +116,7 @@ class TestFormat:
         assert xport.Format.from_spec('$CHAR10.', justify) == xport.Format(
             name='CHAR',
             length=10,
-            decimals=None,
+            decimals=0,
             vtype=xport.VariableType.CHARACTER,
             justify=justify,
         )
@@ -134,7 +134,7 @@ class TestFormat:
         assert xport.Format.from_spec('dollar26.') == xport.Format(
             name='DOLLAR',
             length=26,
-            decimals=None,
+            decimals=0,
             vtype=xport.VariableType.NUMERIC,
         )
 
@@ -224,7 +224,7 @@ class TestVariableMetadata:
         v.sas_format = '$CHAR10.'
         assert v.sas_format.name == 'CHAR'
         assert v.sas_format.length == 10
-        assert v.sas_format.decimals is None
+        assert v.sas_format.decimals == 0
         with pytest.raises(ValueError):
             v.sas_format = ''
         with pytest.raises(ValueError):

@@ -64,7 +64,7 @@ class Informat:
     #    short nifd;        /* INFORMAT NUMBER OF DECIMALS            */
     byte_structure = '>8shh'
 
-    def __init__(self, name='', length=None, decimals=None, vtype=None):
+    def __init__(self, name='', length=0, decimals=0, vtype=None):
         """
         Initialize an input format.
         """
@@ -88,7 +88,7 @@ class Informat:
             ])
         if self.vtype == VariableType.CHARACTER:
             return fmt.format(name=self.name, w=self.length)
-        decimals = self.decimals if self.decimals is not None else ''
+        decimals = self.decimals if self.decimals else ''
         return fmt.format(name=self.name, w=self.length, d=decimals)
 
     def __repr__(self):
@@ -105,9 +105,7 @@ class Informat:
         name = self.name.encode('ascii')
         if len(name) > 8:
             raise ValueError('ASCII-encoded {name!r} longer than 8 bytes')
-        length = self.length if self.length is not None else 0
-        decimals = self.decimals if self.decimals is not None else 0
-        return struct.pack(fmt, name, length, decimals)
+        return struct.pack(fmt, name, self.length, self.decimals)
 
     @classmethod
     def unpack(cls, bytestring):
@@ -151,12 +149,12 @@ class Informat:
         try:
             decimals = mo.group('d')
         except IndexError:
-            decimals = None
+            decimals = 0
         else:
             if decimals != '':
                 decimals = int(decimals)
             else:
-                decimals = None
+                decimals = 0
         return cls(*args, name=name, length=length, decimals=decimals, vtype=vtype, **kwds)
 
     @property
@@ -184,10 +182,15 @@ class Informat:
 
     def __eq__(self, other):
         """Equality."""
-        return (
-            self.vtype == other.vtype and self.name == other.name and self.length == other.length
-            and self.decimals == other.decimals
-        )
+        # TODO: Figure out vtype from struct tokens, then include in eq.
+        if not isinstance(other, Informat):
+            raise TypeError(f"Can't compare {type(self).__name__} with {type(other).__name__}")
+        attributes = [
+            'name',
+            'length',
+            'decimals',
+        ]
+        return all(getattr(self, a) == getattr(other, a) for a in attributes)
 
 
 class Format(Informat):
@@ -220,6 +223,16 @@ class Format(Informat):
         length = self.length if self.length is not None else 0
         decimals = self.decimals if self.decimals is not None else 0
         return struct.pack(fmt, name, length, decimals, self.justify)
+
+    @classmethod
+    def from_struct_tokens(cls, name, length, decimals, justify):
+        """
+        Create a format from unpacked struct tokens.
+        """
+        LOG.debug(f'Creating format from struct tokens {(name, length, decimals, justify)}')
+        form = super().from_struct_tokens(name, length, decimals)
+        form._justify = justify
+        return form
 
     @classmethod
     def from_spec(cls, spec, justify=FormatAlignment.LEFT):
@@ -270,8 +283,25 @@ class Variable(pd.Series):
         """
         Initialize SAS variable metadata.
         """
+        if 'data' in kwds:
+            data = kwds['data']
+        elif args:
+            data = args[0]
+        else:
+            data = None
+
         super().__init__(*args, **kwds)
         self.sas_variable_type  # Force dtype validation.
+
+        # Bogus!  I thought ``_metadata`` magic would copy this over.
+        if isinstance(data, Variable):
+            self._sas_name = data.sas_name
+            self._sas_label = data.sas_label
+            self._sas_format = data.sas_format
+            self._sas_iformat = data.sas_iformat
+            self._sas_variable_number = data.sas_variable_number
+            self._sas_variable_position = data.sas_variable_position
+            self._sas_variable_length = data.sas_variable_length
 
     @property
     def _constructor(self):
@@ -402,7 +432,7 @@ class Variable(pd.Series):
         """
         SAS variable format.
         """
-        return getattr(self, '_sas_format', None)
+        return getattr(self, '_sas_format', Format())
 
     @sas_format.setter
     def sas_format(self, value):
@@ -416,7 +446,7 @@ class Variable(pd.Series):
         """
         SAS variable informat.
         """
-        return getattr(self, '_sas_iformat', None)
+        return getattr(self, '_sas_iformat', Informat())
 
     @sas_iformat.setter
     def sas_iformat(self, value):
@@ -447,9 +477,8 @@ class Dataset(pd.DataFrame):
         """
         Fix column order to match variable order if possible.
         """
-        super().__init__(*args, **kwds)
-        self._sas_name = sas_name
-        self._sas_label = sas_label
+        # NOTE: Don't call ``.info()`` in ``__init__```.
+        #       It causes recursion!
 
         if 'data' in kwds:
             data = kwds['data']
@@ -457,9 +486,15 @@ class Dataset(pd.DataFrame):
             data = args[0]
         else:
             data = None
+
+        super().__init__(*args, **kwds)
+        self._sas_name = sas_name
+        self._sas_label = sas_label
+
+        # Bogus!  Pandas constructs new Series objects and doesn't copy
+        # our metadata from input Variable types.
         if isinstance(data, Mapping):
-            p = 0
-            for i, (k, v) in enumerate(data.items(), 1):
+            for k, v in data.items():
                 if isinstance(v, Variable):
                     cpy = self[k]
                     # Bypass attribute validation.
@@ -467,18 +502,18 @@ class Dataset(pd.DataFrame):
                     cpy._sas_label = v.sas_label
                     cpy._sas_format = v.sas_format
                     cpy._sas_iformat = v.sas_iformat
-                    if v.sas_variable_number is None:
-                        cpy._sas_variable_number = i
-                    else:
-                        cpy._sas_variable_number = v.sas_variable_number
-                    if v.sas_variable_position is None:
-                        cpy._sas_variable_position = p
-                    else:
-                        cpy._sas_variable_position = v.sas_variable_position
+                    cpy._sas_variable_number = v.sas_variable_number
+                    cpy._sas_variable_position = v.sas_variable_position
                     cpy._sas_variable_length = v.sas_variable_length
-                    p += v.sas_variable_length
+
+        p = 0
+        for i, (k, v) in enumerate(self.items(), 1):
+            if v.sas_variable_number is None:
+                v.sas_variable_number = i
+            if v.sas_variable_position is None:
+                v.sas_variable_position = p
+            p += v.sas_variable_length
         LOG.debug('Dataset variables\n%s', self.sas_variables)
-        LOG.debug('Contents\n%s', self.infos())
 
     @property
     def _constructor(self):
@@ -516,7 +551,7 @@ class Dataset(pd.DataFrame):
         df.index.name = '#'
         if order != list(range(1, len(df) + 1)):
             warnings.warn(f"SAS variable numbers {order} don't match column order")
-        if not df.empty and (df['Length'].cumsum() != df['Position']).any():
+        if not df.empty and (df['Position'] != df['Length'].cumsum().shift().fillna(0)).any():
             warnings.warn(f"SAS variable positions don't match order and length")
         return df
 
