@@ -57,6 +57,13 @@ def strptime(timestring):
     return datetime.strptime(text, '%d%b%y:%H:%M:%S')
 
 
+def strftime(dt):
+    """
+    Convert a datetime to an XPT format byte string.
+    """
+    return dt.strftime('%d%b%y:%H:%M:%S').upper().encode('ascii')
+
+
 def ibm_to_ieee(ibm: bytes) -> float:
     """
     Convert IBM-format floating point (bytes) to IEEE 754 64-bit (float).
@@ -288,13 +295,14 @@ class MemberHeader(xport.Dataset):
 
     _metadata = xport.Dataset._metadata + ['observations']
 
-    def __init__(self, *args, **kwds):
+    def __init__(self, *args, observations=None, **kwds):
         """
         Verify empty.
         """
         super().__init__(*args, **kwds)
         if not self.empty:
             LOG.warning(f'{type(self).__name__} has {len(self)} rows, expected 0')
+        self.observations = observations
 
     # 4. Member header records
     #    Both of these records occur for every member in the file.
@@ -389,8 +397,13 @@ class MemberHeader(xport.Dataset):
             LOG.debug(f'Byte string begins with' + '\n%s' * len(lines), *lines)
             return
 
+        ends = [mo.end(0) for mo in matches]
+        starts = [mo.start(0) for mo in matches]
+        mview = memoryview(bytestring)
+        chunks = (mview[i:j] for i, j in zip(ends, starts[1:] + [None]))
+
         headers = []
-        for mo in matches:
+        for mo, chunk in zip(matches, chunks):
             variables = []
             LOG.info(f'Found library member {mo["name"]!r}')
             stride = int(mo['descriptor_size'])
@@ -401,7 +414,7 @@ class MemberHeader(xport.Dataset):
             if len(variables) != int(mo['n_variables']):
                 raise ValueError(f'Expected {mo["n_variables"]}, got {len(variables)}')
             data = {v.sas_name: v for v in sorted(variables, key=lambda v: v.sas_variable_number)}
-            h = cls(data)
+            h = cls(data, observations=chunk)
             h.sas_name = mo['name'].strip(b'\x00').decode('ascii').strip()
             h.sas_label = mo['label'].strip(b'\x00').decode('ascii').strip()
             h.sas_dataset_type = mo['type'].strip(b'\x00').decode('ascii').strip()
@@ -411,12 +424,44 @@ class MemberHeader(xport.Dataset):
             h.sas_dataset_modified = strptime(mo['modified'])
             LOG.debug(f'Parsed member header {h.sas_name} with {len(variables)} variables')
             headers.append(h)
-
         return headers
 
-        # ends = [mo.end(0) for mo in matches]
-        # starts = [mo.start(0) for mo in matches]
-        # chunks = (mview[i:j] for i, j in zip(ends, starts[1:] + [None]))
+    def to_dataset(self):
+        """
+
+        """
+
+    template = f'''\
+HEADER RECORD{'*' * 7}MEMBER  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
+HEADER RECORD{'*' * 7}DSCRPTR HEADER RECORD{'!' * 7}{'0' * 30}  \
+SAS     %(name)8bSASDATA %(version)8b%(os)8b{' ' * 24}%(created)16b\
+%(modified)16b{' ' * 16}%(label)40b%(type)8b\
+HEADER RECORD{'*' * 7}NAMESTR HEADER RECORD{'!' * 7}{'0' * 6}\
+%(n_variables)04d{'0' * 20}  \
+%(namestrs)b\
+HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
+'''.encode('ascii')
+
+    def __bytes__(self):
+        """
+        XPORT-format bytes string.
+        """
+        self.update_variable_number_and_position()
+        namestrs = b''.join(bytes(xport.v56.Namestr(v)) for k, v in self.items())
+        if len(namestrs) % 80:
+            namestrs += b' ' * (80 - len(namestrs) % 80)
+        return self.template % {
+            b'name': self.sas_name.encode('ascii')[:8].ljust(8),
+            b'label': self.sas_label.encode('ascii')[:40].ljust(40),
+            b'type': self.sas_dataset_type.encode('ascii')[:8].ljust(8),
+            b'n_variables': len(self.columns),
+            b'os': self.sas_os.encode('ascii')[:8].ljust(8),
+            b'version': self.sas_version.encode('ascii')[:8].ljust(8),
+            b'created': strftime(self.sas_dataset_created),
+            b'modified': strftime(self.sas_dataset_modified),
+            b'namestrs': namestrs,
+        }
+
         # for h, chunk in zip(headers, chunks):
         #     rows = pd.DataFrame(h.parse_observations(chunk))
         #     h.data = pd.concat([h.data, rows])
@@ -463,6 +508,21 @@ class MemberHeader(xport.Dataset):
             LOG.debug(f'Parsed observation {json.dumps(obs, indent=2)}')
             yield obs
 
+    # def __bytes__(self):
+    #     """
+    #     XPORT-format bytes string.
+    #     """
+    #     bytes_ = Observation.formatter(self.namestrs.values())
+    #     df = self.observations.copy()
+    #     for k, dtype in df.dtypes.iteritems():
+    #         if dtype == 'object':
+    #             df[k] = df[k].str.encode('ascii')
+    #         else:
+    #             df[k] = df[k].map(ieee_to_ibm)
+    #     observations = b''.join(bytes_(t) for t in df.itertuples(index=False, name=None))
+    #     if len(observations) % 80:
+    #         observations += b' ' * (80 - len(observations) % 80)
+
 
 # class Member(xport.Member):
 #     """
@@ -485,48 +545,6 @@ class MemberHeader(xport.Dataset):
 #             return struct.pack(fmt, *t)
 
 #         return bytes_
-
-#     template = f'''\
-# HEADER RECORD{'*' * 7}MEMBER  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
-# HEADER RECORD{'*' * 7}DSCRPTR HEADER RECORD{'!' * 7}{'0' * 30}  \
-# SAS     %(name)8bSASDATA %(version)8b%(os)8b{' ' * 24}%(created)16b\
-# %(modified)16b{' ' * 16}%(label)40b%(type)8b\
-# HEADER RECORD{'*' * 7}NAMESTR HEADER RECORD{'!' * 7}{'0' * 6}\
-# %(n_variables)04d{'0' * 20}  \
-# %(namestrs)b\
-# HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
-# %(observations)b\
-# '''.encode('ascii')
-
-#     def __bytes__(self):
-#         """
-#         XPORT-format bytes string.
-#         """
-#         bytes_ = Observation.formatter(self.namestrs.values())
-#         df = self.observations.copy()
-#         for k, dtype in df.dtypes.iteritems():
-#             if dtype == 'object':
-#                 df[k] = df[k].str.encode('ascii')
-#             else:
-#                 df[k] = df[k].map(ieee_to_ibm)
-#         observations = b''.join(bytes_(t) for t in df.itertuples(index=False, name=None))
-#         if len(observations) % 80:
-#             observations += b' ' * (80 - len(observations) % 80)
-#         namestrs = b''.join(bytes(n) for n in self.namestrs.values())
-#         if len(namestrs) % 80:
-#             namestrs += b' ' * (80 - len(namestrs) % 80)
-#         return self.template % {
-#             b'name': self.name.encode('ascii')[:8],
-#             b'label': self.label.encode('ascii')[:8],
-#             b'type': self.type.encode('ascii')[:8],
-#             b'n_variables': len(self.namestrs),
-#             b'os': self.os.encode('ascii')[:8],
-#             b'version': '.'.join(self.sas_version).encode('ascii')[:8],
-#             b'created': self.created.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
-#             b'modified': self.modified.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
-#             b'namestrs': namestrs,
-#             b'observations': observations,
-#         }
 
 
 class Library(xport.Library):

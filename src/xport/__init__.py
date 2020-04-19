@@ -441,7 +441,7 @@ class Dataset(pd.DataFrame):
         '_sas_version',
     ]
 
-    def __init__(self, *args, sas_name='', sas_label='', **kwds):
+    def __init__(self, *args, sas_name=None, sas_label=None, **kwds):
         """
         Fix column order to match variable order if possible.
         """
@@ -456,32 +456,52 @@ class Dataset(pd.DataFrame):
             data = None
 
         super().__init__(*args, **kwds)
-        self._sas_name = sas_name
-        self._sas_label = sas_label
 
-        # Bogus!  Pandas constructs new Series objects and doesn't copy
-        # our metadata from input Variable types.
-        if isinstance(data, Mapping):
+        if isinstance(data, Dataset):
+            self.sas_name = data.sas_name
+            self.sas_label = data.sas_label
+            self.sas_dataset_type = data.sas_dataset_type
+            self.sas_dataset_created = data.sas_dataset_created
+            self.sas_dataset_modified = data.sas_dataset_modified
+            self.sas_os = data.sas_os
+            self.sas_version = data.sas_version
+
+        if sas_name is not None:
+            self.sas_name = sas_name
+        if sas_label is not None:
+            self.sas_label = sas_label
+
+        if isinstance(data, (Mapping, Dataset)):
             for k, v in data.items():
                 if isinstance(v, Variable):
-                    cpy = self[k]
                     # Bypass attribute validation.
-                    cpy._sas_name = v.sas_name
-                    cpy._sas_label = v.sas_label
-                    cpy._sas_format = v.sas_format
-                    cpy._sas_iformat = v.sas_iformat
-                    cpy._sas_variable_number = v.sas_variable_number
-                    cpy._sas_variable_position = v.sas_variable_position
-                    cpy._sas_variable_length = v.sas_variable_length
+                    self[k]._sas_name = v.sas_name
+                    self[k]._sas_label = v.sas_label
+                    self[k]._sas_format = v.sas_format
+                    self[k]._sas_iformat = v.sas_iformat
+                    self[k]._sas_variable_number = v.sas_variable_number
+                    self[k]._sas_variable_position = v.sas_variable_position
+                    self[k]._sas_variable_length = v.sas_variable_length
 
+        # p = 0
+        # for i, (k, v) in enumerate(self.items(), 1):
+        #     if v.sas_variable_number is None:
+        #         v.sas_variable_number = i
+        #     if v.sas_variable_position is None:
+        #         v.sas_variable_position = p
+        #     p += v.sas_variable_length
+        LOG.debug('Dataset variables\n%s', self.sas_variables)
+
+    def update_variable_number_and_position(self):
+        """
+        Update variable number and position to match layout and lengths.
+        """
         p = 0
         for i, (k, v) in enumerate(self.items(), 1):
-            if v.sas_variable_number is None:
-                v.sas_variable_number = i
-            if v.sas_variable_position is None:
-                v.sas_variable_position = p
+            v.sas_variable_number = i
+            v.sas_variable_position = p
             p += v.sas_variable_length
-        LOG.debug('Dataset variables\n%s', self.sas_variables)
+        LOG.debug('Updated variable number and position\n%s', self.sas_variables)
 
     @property
     def _constructor(self):
@@ -537,7 +557,7 @@ class Dataset(pd.DataFrame):
         """
         Dataset name.
         """
-        return self._sas_name
+        return getattr(self, '_sas_name', '')
 
     @sas_name.setter
     def sas_name(self, value):
@@ -565,7 +585,7 @@ class Dataset(pd.DataFrame):
         """
         Dataset type.
         """
-        return self._sas_dataset_type
+        return getattr(self, '_sas_dataset_type', '')
 
     @sas_dataset_type.setter
     def sas_dataset_type(self, value):
@@ -579,7 +599,7 @@ class Dataset(pd.DataFrame):
         """
         Dataset created.
         """
-        return self._sas_dataset_created
+        return getattr(self, '_sas_dataset_created', datetime.now())
 
     @sas_dataset_created.setter
     def sas_dataset_created(self, value):
@@ -594,7 +614,7 @@ class Dataset(pd.DataFrame):
         """
         Dataset modified.
         """
-        return self._sas_dataset_modified
+        return getattr(self, '_sas_dataset_modified', datetime.now())
 
     @sas_dataset_modified.setter
     def sas_dataset_modified(self, value):
@@ -609,7 +629,7 @@ class Dataset(pd.DataFrame):
         """
         OS used to create the dataset.
         """
-        return self._sas_os
+        return getattr(self, '_sas_os', '')
 
     @sas_os.setter
     def sas_os(self, value):
@@ -623,7 +643,7 @@ class Dataset(pd.DataFrame):
         """
         SAS version used to create the dataset.
         """
-        return self._sas_version
+        return getattr(self, '_sas_version', '')
 
     @sas_version.setter
     def sas_version(self, value):

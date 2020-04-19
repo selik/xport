@@ -46,6 +46,7 @@ def library():
     df['TEMP'].sas_label = 'Temperature'
     df['TEMP'].sas_format = '8.1'
 
+    df.update_variable_number_and_position()
     return xport.Library(members={'ECON': df})
 
 
@@ -112,17 +113,18 @@ def dataset(library):
 
 
 @pytest.fixture(scope='module')
-def dataset_bytestring(library_bytestring):
+def member_header_bytestring(library_bytestring):
     """
     Example dataset bytestring.
     """
-    index = 80 * 3
-    return library_bytestring[index:]
+    i = 80 * 3
+    j = i + 6 * 80 + 4 * 140
+    return library_bytestring[i:j]
 
 
 class TestNamestr:
 
-    def test_unpack(self, variable, namestr_bytestring):
+    def test_decode(self, variable, namestr_bytestring):
         v = variable
         parsed = xport.v56.Namestr.unpack(namestr_bytestring)
         assert v.sas_name == parsed.sas_name
@@ -134,7 +136,7 @@ class TestNamestr:
         assert v.sas_variable_position == parsed.sas_variable_position
         assert v.sas_variable_length == parsed.sas_variable_length
 
-    def test_pack(self, variable, namestr_bytestring):
+    def test_encode(self, variable, namestr_bytestring):
         v = xport.v56.Namestr(variable)
         b = bytes(v)
         assert b == namestr_bytestring
@@ -142,28 +144,47 @@ class TestNamestr:
 
 class TestMemberHeader:
 
-    def test_parse(self, dataset, dataset_bytestring):
-        headers = xport.v56.MemberHeader.findall(dataset_bytestring)
-        parsed, = headers
-        assert dataset.sas_name == parsed.sas_name
-        assert dataset.sas_label == parsed.sas_label
-        assert dataset.sas_dataset_type == parsed.sas_dataset_type
-        assert dataset.sas_dataset_created == parsed.sas_dataset_created
-        assert dataset.sas_dataset_modified == parsed.sas_dataset_modified
-        assert dataset.sas_os == parsed.sas_os
-        assert dataset.sas_version == parsed.sas_version
+    def compare(self, a, b):
+        assert a.sas_name == b.sas_name
+        assert a.sas_label == b.sas_label
+        assert a.sas_dataset_type == b.sas_dataset_type
+        assert a.sas_dataset_created == b.sas_dataset_created
+        assert a.sas_dataset_modified == b.sas_dataset_modified
+        assert a.sas_os == b.sas_os
+        assert a.sas_version == b.sas_version
+        for k in set(a) | set(b):
+            x, y = a[k], b[k]
+            assert x.sas_name == y.sas_name
+            assert x.sas_label == y.sas_label
+            assert x.sas_variable_type == y.sas_variable_type
+            assert x.sas_format == y.sas_format
+            assert x.sas_iformat == y.sas_iformat
+            assert x.sas_variable_length == y.sas_variable_length
+            assert x.sas_variable_number == y.sas_variable_number
+            assert x.sas_variable_position == y.sas_variable_position
 
-        for k in set(dataset) | set(parsed):
-            a, b = dataset[k], parsed[k]
-            assert a.sas_name == b.sas_name
-            assert a.sas_label == b.sas_label
-            assert a.sas_variable_type == b.sas_variable_type
-            assert a.sas_format == b.sas_format
-            assert a.sas_iformat == b.sas_iformat
-            assert a.sas_variable_length == b.sas_variable_length
-            assert a.sas_variable_number == b.sas_variable_number
-            # TODO: Update position when length or number changes.
-            # assert a.sas_variable_position == b.sas_variable_position
+    def test_decode(self, dataset, member_header_bytestring):
+        headers = xport.v56.MemberHeader.findall(member_header_bytestring)
+        parsed, = headers
+        self.compare(dataset, parsed)
+
+    def test_encode(self, dataset, member_header_bytestring):
+        h = xport.v56.MemberHeader(dataset)
+        self.compare(h, dataset)
+        b = bytes(h)
+        stride = 80
+        for i in range(0, 5 * stride, stride):
+            expected = member_header_bytestring[i:i + stride]
+            got = b[i:i + stride]
+            assert got == expected
+        stride = 140
+        for i in range(i, len(dataset.columns) * stride, stride):
+            expected = member_header_bytestring[i:i + stride]
+            got = b[i:i + stride]
+            assert got == expected
+        expected = member_header_bytestring[i:]
+        got = b[i:]
+        assert got == expected
 
 
 # def test_parse_observations(self, library, library_bytestring):
