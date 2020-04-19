@@ -282,27 +282,10 @@ class Namestr(xport.Variable):
         )
 
 
-class MemberHeader(xport.Dataset):
+class Member(xport.Dataset):
     """
-    SAS library member metadata from a SAS Version 5 or 6 Transport file.
-
-    While this class extends the Dataset class, and thereby is a
-    subclass of Pandas' DataFrame, it is expected to be always empty.
-    Instead of storing data as a DataFrame, it will keep a reference to
-    a ``memoryview`` of the data (observations) as in an XPORT-format
-    document.
+    SAS library member from a SAS Version 5 or 6 Transport file.
     """
-
-    _metadata = xport.Dataset._metadata + ['observations']
-
-    def __init__(self, *args, observations=None, **kwds):
-        """
-        Verify empty.
-        """
-        super().__init__(*args, **kwds)
-        if not self.empty:
-            LOG.warning(f'{type(self).__name__} has {len(self)} rows, expected 0')
-        self.observations = observations
 
     # 4. Member header records
     #    Both of these records occur for every member in the file.
@@ -383,93 +366,6 @@ class MemberHeader(xport.Dataset):
         re.DOTALL,
     )
 
-    @classmethod
-    def findall(cls, bytestring):
-        """
-        Parse SAS library member headers from a byte string.
-        """
-        LOG.debug('Searching for library members ...')
-        matches = list(cls.pattern.finditer(bytestring))
-
-        if not matches:
-            warnings.warn('No library members found')
-            lines = [bytestring[i * 80:(i + 1) * 80] for i in range(6)]
-            LOG.debug(f'Byte string begins with' + '\n%s' * len(lines), *lines)
-            return
-
-        ends = [mo.end(0) for mo in matches]
-        starts = [mo.start(0) for mo in matches]
-        mview = memoryview(bytestring)
-        chunks = (mview[i:j] for i, j in zip(ends, starts[1:] + [None]))
-
-        headers = []
-        for mo, chunk in zip(matches, chunks):
-            variables = []
-            LOG.info(f'Found library member {mo["name"]!r}')
-            stride = int(mo['descriptor_size'])
-            for i in range(0, len(mo['namestrs']), stride):
-                b = mo['namestrs'][i:i + stride]
-                if len(b) == stride:
-                    variables.append(Namestr.unpack(b))
-            if len(variables) != int(mo['n_variables']):
-                raise ValueError(f'Expected {mo["n_variables"]}, got {len(variables)}')
-            data = {v.sas_name: v for v in sorted(variables, key=lambda v: v.sas_variable_number)}
-            h = cls(data, observations=chunk)
-            h.sas_name = mo['name'].strip(b'\x00').decode('ascii').strip()
-            h.sas_label = mo['label'].strip(b'\x00').decode('ascii').strip()
-            h.sas_dataset_type = mo['type'].strip(b'\x00').decode('ascii').strip()
-            h.sas_os = mo['os'].strip(b'\x00').decode('ascii').strip()
-            h.sas_version = mo['version'].strip().decode('ascii')
-            h.sas_dataset_created = strptime(mo['created'])
-            h.sas_dataset_modified = strptime(mo['modified'])
-            LOG.debug(f'Parsed member header {h.sas_name} with {len(variables)} variables')
-            headers.append(h)
-        return headers
-
-    def to_dataset(self):
-        """
-
-        """
-
-    template = f'''\
-HEADER RECORD{'*' * 7}MEMBER  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
-HEADER RECORD{'*' * 7}DSCRPTR HEADER RECORD{'!' * 7}{'0' * 30}  \
-SAS     %(name)8bSASDATA %(version)8b%(os)8b{' ' * 24}%(created)16b\
-%(modified)16b{' ' * 16}%(label)40b%(type)8b\
-HEADER RECORD{'*' * 7}NAMESTR HEADER RECORD{'!' * 7}{'0' * 6}\
-%(n_variables)04d{'0' * 20}  \
-%(namestrs)b\
-HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
-'''.encode('ascii')
-
-    def __bytes__(self):
-        """
-        XPORT-format bytes string.
-        """
-        self.update_variable_number_and_position()
-        namestrs = b''.join(bytes(xport.v56.Namestr(v)) for k, v in self.items())
-        if len(namestrs) % 80:
-            namestrs += b' ' * (80 - len(namestrs) % 80)
-        return self.template % {
-            b'name': self.sas_name.encode('ascii')[:8].ljust(8),
-            b'label': self.sas_label.encode('ascii')[:40].ljust(40),
-            b'type': self.sas_dataset_type.encode('ascii')[:8].ljust(8),
-            b'n_variables': len(self.columns),
-            b'os': self.sas_os.encode('ascii')[:8].ljust(8),
-            b'version': self.sas_version.encode('ascii')[:8].ljust(8),
-            b'created': strftime(self.sas_dataset_created),
-            b'modified': strftime(self.sas_dataset_modified),
-            b'namestrs': namestrs,
-        }
-
-        # for h, chunk in zip(headers, chunks):
-        #     rows = pd.DataFrame(h.parse_observations(chunk))
-        #     h.data = pd.concat([h.data, rows])
-        #     # BUG: Argh! Every time we change columns, we lose the series accessors.
-        #     h.data.sas = h
-        #     LOG.info('Parsed dataframe for %s\n%s', h.name, h.info())
-        #     yield h
-
     # 9. Data records
     #    Data records are streamed in the same way that namestrs are.
     #    There is ASCII blank padding at the end of the last record if
@@ -480,33 +376,143 @@ HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
         xport.VariableType.CHARACTER: lambda s: s.strip(b'\x00').decode('ascii').rstrip()
     }
 
-    def parse_observations(self, bytestring):
+    @classmethod
+    def finditer(cls, bytestring):
         """
-        Parse observations from a bytes string.
+        Parse SAS library members from a byte string.
         """
-        mview = memoryview(bytestring)
-        df = self.data
-        variables = [df[k].sas for k in df]
-        names = [v.name for v in variables]
-        parsers = [self.decoders[v.type] for v in variables]
-        sizes = [v.length for v in variables]
-        fmt = ''.join(f'{x}s' for x in sizes)
-        stride = sum(sizes)
-        LOG.info(f'Observation struct fmt {fmt}')
+        LOG.debug('Searching for library members ...')
+        matches = list(cls.pattern.finditer(bytestring))
 
-        if stride == 0:
+        if not matches:
+            warnings.warn('No library members found')
+            lines = [bytestring[i * 80:(i + 1) * 80] for i in range(6)]
+            LOG.debug(f'Byte string begins with' + '\n%s' * len(lines), *lines)
             return
-        sentinel = b' ' * stride
-        for i in range(0, len(mview), stride):
-            chunk = mview[i:i + stride]
-            LOG.debug(f'Parsing observation from {bytes(chunk)}')
-            if len(chunk) != stride or chunk == sentinel:
-                LOG.debug(f'End padding {chunk}')
-                break
-            tokens = struct.unpack(fmt, chunk)
-            obs = {n: f(b) for n, f, b in zip(names, parsers, tokens)}
-            LOG.debug(f'Parsed observation {json.dumps(obs, indent=2)}')
-            yield obs
+
+        headers = []
+        for mo in matches:
+            variables = []
+            LOG.info(f'Found library member {mo["name"]!r}')
+            stride = int(mo['descriptor_size'])
+            for i in range(0, len(mo['namestrs']), stride):
+                b = mo['namestrs'][i:i + stride]
+                if len(b) == stride:
+                    variables.append(Namestr.unpack(b))
+            if len(variables) != int(mo['n_variables']):
+                raise ValueError(f'Expected {mo["n_variables"]}, got {len(variables)}')
+            data = {v.sas_name: v for v in sorted(variables, key=lambda v: v.sas_variable_number)}
+            h = cls(data)
+            h.sas_name = mo['name'].strip(b'\x00').decode('ascii').strip()
+            h.sas_label = mo['label'].strip(b'\x00').decode('ascii').strip()
+            h.sas_dataset_type = mo['type'].strip(b'\x00').decode('ascii').strip()
+            h.sas_os = mo['os'].strip(b'\x00').decode('ascii').strip()
+            h.sas_version = mo['version'].strip().decode('ascii')
+            h.sas_dataset_created = strptime(mo['created'])
+            h.sas_dataset_modified = strptime(mo['modified'])
+            LOG.debug(f'Parsed member header {h.sas_name} with {len(variables)} variables')
+            headers.append(h)
+
+        mview = memoryview(bytestring)
+        ends = [mo.end(0) for mo in matches]
+        starts = [mo.start(0) for mo in matches]
+        chunks = (mview[i:j] for i, j in zip(ends, starts[1:] + [None]))
+        for h, chunk in zip(headers, chunks):
+            yield h
+
+    template = f'''\
+HEADER RECORD{'*' * 7}MEMBER  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
+HEADER RECORD{'*' * 7}DSCRPTR HEADER RECORD{'!' * 7}{'0' * 30}  \
+SAS     %(name)8bSASDATA %(version)8b%(os)8b{' ' * 24}%(created)16b\
+%(modified)16b{' ' * 16}%(label)40b%(type)8b\
+HEADER RECORD{'*' * 7}NAMESTR HEADER RECORD{'!' * 7}{'0' * 6}\
+%(n_variables)04d{'0' * 20}  \
+%(namestrs)b\
+HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
+%(observations)b\
+'''.encode('ascii')
+
+    def encoder(self):
+        """
+        Make an observation encoder.
+        """
+        # Try to avoid keeping a reference to a Variable in the closure.
+        variables = [v for k, v in self.items()]
+        sizes = [v.sas_variable_length for v in variables]
+        vtypes = [v.sas_variable_type for v in variables]
+        fmt = ''.join(f'{x}s' for x in sizes)
+        converters = []
+        for vtype, x in zip(vtypes, sizes):
+            if vtype == xport.VariableType.NUMERIC:
+                converters.append(ieee_to_ibm)
+            else:
+                converters.append(lambda s: s.encode('ascii').ljust(x))
+
+        def bytes_(t):
+            """Convert an observation (tuple) to a byte string."""
+            g = (f(v) for f, v in zip(converters, t))
+            return struct.pack(fmt, *g)
+
+        return bytes_
+
+    def __bytes__(self):
+        """
+        XPORT-format bytes string.
+        """
+        self.update_variable_number_and_position()
+
+        namestrs = b''.join(bytes(xport.v56.Namestr(v)) for k, v in self.items())
+        if len(namestrs) % 80:
+            namestrs += b' ' * (80 - len(namestrs) % 80)
+
+        observations = self.itertuples(index=False, name=None)
+        observations = b''.join(self.encoder()(t) for t in observations)
+        if len(observations) % 80:
+            observations += b' ' * (80 - len(observations) % 80)
+
+        return self.template % {
+            b'name': self.sas_name.encode('ascii')[:8].ljust(8),
+            b'label': self.sas_label.encode('ascii')[:40].ljust(40),
+            b'type': self.sas_dataset_type.encode('ascii')[:8].ljust(8),
+            b'n_variables': len(self.columns),
+            b'os': self.sas_os.encode('ascii')[:8].ljust(8),
+            b'version': self.sas_version.encode('ascii')[:8].ljust(8),
+            b'created': strftime(self.sas_dataset_created),
+            b'modified': strftime(self.sas_dataset_modified),
+            b'namestrs': namestrs,
+            b'observations': observations,
+        }
+
+        # df = self.data
+        # variables = [df[k].sas for k in df]
+        # names = [v.name for v in variables]
+        # parsers = [self.decoders[v.type] for v in variables]
+        # sizes = [v.length for v in variables]
+        # fmt = ''.join(f'{x}s' for x in sizes)
+        # stride = sum(sizes)
+        # LOG.info(f'Observation struct fmt {fmt}')
+
+        # if stride == 0:
+        #     return
+        # sentinel = b' ' * stride
+        # for i in range(0, len(mview), stride):
+        #     chunk = mview[i:i + stride]
+        #     LOG.debug(f'Parsing observation from {bytes(chunk)}')
+        #     if len(chunk) != stride or chunk == sentinel:
+        #         LOG.debug(f'End padding {chunk}')
+        #         break
+        #     tokens = struct.unpack(fmt, chunk)
+        #     obs = {n: f(b) for n, f, b in zip(names, parsers, tokens)}
+        #     LOG.debug(f'Parsed observation {json.dumps(obs, indent=2)}')
+        #     yield obs
+
+        # for h, chunk in zip(headers, chunks):
+        #     rows = pd.DataFrame(h.parse_observations(chunk))
+        #     h.data = pd.concat([h.data, rows])
+        #     # BUG: Argh! Every time we change columns, we lose the series accessors.
+        #     h.data.sas = h
+        #     LOG.info('Parsed dataframe for %s\n%s', h.name, h.info())
+        #     yield h
 
     # def __bytes__(self):
     #     """
@@ -522,29 +528,6 @@ HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
     #     observations = b''.join(bytes_(t) for t in df.itertuples(index=False, name=None))
     #     if len(observations) % 80:
     #         observations += b' ' * (80 - len(observations) % 80)
-
-
-# class Member(xport.Member):
-#     """
-#     SAS library member from a SAS Version 5 or 6 Transport (XPORT) file.
-#     """
-
-#     @classmethod
-#     def formatter(cls, namestrs):
-#         """
-#         Make an observation formatter for a collection of namestrs.
-#         """
-#         # names = [v['name'] for v in namestrs]
-#         sizes = [v['length'] for v in namestrs]
-#         fmt = ''.join(f'{x}s' for x in sizes)
-
-#         def bytes_(t):
-#             """
-#             Convert an observation (tuple) to a bytes string.
-#             """
-#             return struct.pack(fmt, *t)
-
-#         return bytes_
 
 
 class Library(xport.Library):

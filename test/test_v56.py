@@ -113,13 +113,12 @@ def dataset(library):
 
 
 @pytest.fixture(scope='module')
-def member_header_bytestring(library_bytestring):
+def dataset_bytestring(library_bytestring):
     """
     Example dataset bytestring.
     """
     i = 80 * 3
-    j = i + 6 * 80 + 4 * 140
-    return library_bytestring[i:j]
+    return library_bytestring[i:]
 
 
 class TestNamestr:
@@ -163,28 +162,38 @@ class TestMemberHeader:
             assert x.sas_variable_number == y.sas_variable_number
             assert x.sas_variable_position == y.sas_variable_position
 
-    def test_decode(self, dataset, member_header_bytestring):
-        headers = xport.v56.MemberHeader.findall(member_header_bytestring)
+    def test_decode(self, dataset, dataset_bytestring):
+        headers = xport.v56.Member.finditer(dataset_bytestring)
         parsed, = headers
         self.compare(dataset, parsed)
 
-    def test_encode(self, dataset, member_header_bytestring):
-        h = xport.v56.MemberHeader(dataset)
+    def test_encode(self, dataset, dataset_bytestring):
+        h = xport.v56.Member(dataset)
         self.compare(h, dataset)
         b = bytes(h)
         stride = 80
         for i in range(0, 5 * stride, stride):
-            expected = member_header_bytestring[i:i + stride]
+            expected = dataset_bytestring[i:i + stride]
             got = b[i:i + stride]
             assert got == expected
         stride = 140
         for i in range(i, len(dataset.columns) * stride, stride):
-            expected = member_header_bytestring[i:i + stride]
+            expected = dataset_bytestring[i:i + stride]
             got = b[i:i + stride]
             assert got == expected
-        expected = member_header_bytestring[i:]
-        got = b[i:]
-        assert got == expected
+
+
+class TestObservations:
+
+    @pytest.mark.skip('Not yet implemented')
+    def test_decode(self, dataset, dataset_bytestring):
+        assert False
+        assert Library.match(library_bytestring) == library
+
+    def test_encode(self, dataset, dataset_bytestring):
+        member = xport.v56.Member(dataset)
+        b = bytes(member)
+        assert b == dataset_bytestring
 
 
 # def test_parse_observations(self, library, library_bytestring):
