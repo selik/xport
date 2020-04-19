@@ -402,6 +402,8 @@ class Variable(pd.Series):
 
     @sas_format.setter
     def sas_format(self, value):
+        # TODO: Enable setting format alignment.  Currently one must
+        #       bypass the setter and assign to the private attribute.
         if value is None:
             self._sas_format = None
         else:
@@ -506,7 +508,7 @@ class Dataset(pd.DataFrame):
         # TODO: Does this unnecessarily make bunches of copies of the data?
         df = pd.DataFrame({
             'Variable': [v.sas_name for k, v in self.items()],
-            'Type': [v.sas_variable_type for k, v in self.items()],
+            'Type': [v.sas_variable_type.name.title() for k, v in self.items()],
             'Length': [v.sas_variable_length for k, v in self.items()],
             'Position': [v.sas_variable_position for k, v in self.items()],
             'Format': [str(v.sas_format) for k, v in self.items()],

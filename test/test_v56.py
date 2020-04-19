@@ -30,8 +30,8 @@ def library():
         sas_name='ECON',
         sas_label='Blank-padded dataset label',
     )
-    df.sas_dataet_type = ''
-    df.sas_dataet_created = df.sas_dataet_modified = datetime(2015, 11, 13, 10, 35, 8)
+    df.sas_dataset_type = ''
+    df.sas_dataset_created = df.sas_dataset_modified = datetime(2015, 11, 13, 10, 35, 8)
     df.sas_os = 'W32_7PRO'
     df.sas_version = '9.3'
 
@@ -39,7 +39,7 @@ def library():
     df['VIT_STAT'].sas_format = '$5.'
     df['VIT_STAT'].sas_variable_length = 8
     df['ECON'].sas_label = 'Economic status'
-    df['ECON'].sas_format = '$CHAR4.'
+    df['ECON']._sas_format = xport.Format('$CHAR', 4, 0, xport.FormatAlignment.RIGHT)
     df['ECON'].sas_variable_length = 8
     df['COUNT'].sas_label = 'Count'
     df['COUNT'].sas_format = 'comma8.0'
@@ -143,27 +143,27 @@ class TestNamestr:
 class TestMemberHeader:
 
     def test_parse(self, dataset, dataset_bytestring):
-        df = dataset
         headers = xport.v56.MemberHeader.findall(dataset_bytestring)
+        parsed, = headers
+        assert dataset.sas_name == parsed.sas_name
+        assert dataset.sas_label == parsed.sas_label
+        assert dataset.sas_dataset_type == parsed.sas_dataset_type
+        assert dataset.sas_dataset_created == parsed.sas_dataset_created
+        assert dataset.sas_dataset_modified == parsed.sas_dataset_modified
+        assert dataset.sas_os == parsed.sas_os
+        assert dataset.sas_version == parsed.sas_version
 
-        # assert h.name == parsed.name
-        # assert h.label == parsed.label
-        # assert h.type == parsed.type
-        # assert h.created == parsed.created
-        # assert h.modified == parsed.modified
-        # assert h.os == parsed.os
-        # assert h.version == parsed.version
-        # left = [h.data[k].sas for k in h.data]
-        # right = [parsed.data[k].sas for k in parsed.data]
-        # for a, b in zip(left, right):
-        #     assert a.name == b.name
-        #     assert a.label == b.label
-        #     assert a.type == b.type
-        #     # assert a.format == b.format
-        #     # assert a.iformat == b.iformat
-        #     assert a.length == b.length
-        #     assert a.number == b.number
-        #     assert a.position == b.position
+        for k in set(dataset) | set(parsed):
+            a, b = dataset[k], parsed[k]
+            assert a.sas_name == b.sas_name
+            assert a.sas_label == b.sas_label
+            assert a.sas_variable_type == b.sas_variable_type
+            assert a.sas_format == b.sas_format
+            assert a.sas_iformat == b.sas_iformat
+            assert a.sas_variable_length == b.sas_variable_length
+            assert a.sas_variable_number == b.sas_variable_number
+            # TODO: Update position when length or number changes.
+            # assert a.sas_variable_position == b.sas_variable_position
 
 
 # def test_parse_observations(self, library, library_bytestring):
