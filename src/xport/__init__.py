@@ -342,6 +342,9 @@ class Variable(pd.Series):
             return VariableType.NUMERIC
         elif self.dtype.kind == 'O':
             return VariableType.CHARACTER
+        elif self.dtype.kind == 'b':
+            # We'll encode Boolean columns as 1 if True else 0.
+            return VariableType.NUMERIC
         raise TypeError(f'{type(self).__name__}.dtype {self.dtype} not supported')
 
     @property
@@ -475,6 +478,7 @@ class Dataset(pd.DataFrame):
                     cpy._sas_variable_length = v.sas_variable_length
                     p += v.sas_variable_length
         LOG.debug('Dataset variables\n%s', self.sas_variables)
+        LOG.debug('Contents\n%s', self.infos())
 
     @property
     def _constructor(self):
@@ -497,17 +501,6 @@ class Dataset(pd.DataFrame):
         """
         Variable metadata, such as label, format, number, and position.
         """
-
-        def df_info(self):
-            """
-            Like ``DataFrame.info`` but returns a string.
-            """
-            buf = StringIO()
-            self.info(buf=buf)
-            buf.seek(0)
-            return buf.read()
-
-        LOG.debug('Getting metadata for %s\n%s', type(self).__name__, df_info(self))
         # TODO: Can this dataframe be read-only?
         # TODO: Does this unnecessarily make bunches of copies of the data?
         df = pd.DataFrame({
@@ -523,9 +516,18 @@ class Dataset(pd.DataFrame):
         df.index.name = '#'
         if order != list(range(1, len(df) + 1)):
             warnings.warn(f"SAS variable numbers {order} don't match column order")
-        if (df['Length'].cumsum() != df['Position']).all():
+        if not df.empty and (df['Length'].cumsum() != df['Position']).any():
             warnings.warn(f"SAS variable positions don't match order and length")
         return df
+
+    def infos(self):
+        """
+        Like ``DataFrame.info`` but returns a string.
+        """
+        buf = StringIO()
+        self.info(buf=buf)
+        buf.seek(0)
+        return buf.read()
 
     @property
     def sas_name(self):

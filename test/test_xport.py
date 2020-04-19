@@ -187,8 +187,8 @@ class TestVariableMetadata:
 
     def test_sas_variable_type(self):
         character = ['string', 'object']
-        numeric = ['float', 'int']
-        invalid = ['bool']
+        numeric = ['float', 'int', 'bool']
+        invalid = ['datetime64[ns]']
         for dtype in character:
             v = xport.Variable(dtype=dtype)
             assert v.sas_variable_type == xport.VariableType.CHARACTER
