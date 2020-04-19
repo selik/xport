@@ -17,45 +17,19 @@ class TestInformat:
     Verify parsing and display of input formats.
     """
 
-    def test_init(self):
-        """
-        Verify data validation can be bypassed by init.
-        """
-        xport.Informat(name=None, length=None, decimals=None, vtype=None)
-
     def test_spec_character(self):
         """
         Verify parsing from an informat specification.
         """
-        assert xport.Informat.from_spec('$3.') == xport.Informat(
-            name='',
-            length=3,
-            decimals=0,
-            vtype=xport.VariableType.CHARACTER,
-        )
-        assert xport.Informat.from_spec('$CHAR10.') == xport.Informat(
-            name='CHAR',
-            length=10,
-            decimals=0,
-            vtype=xport.VariableType.CHARACTER,
-        )
+        assert xport.Informat.from_spec('$3.') == xport.Informat('$', 3, 0)
+        assert xport.Informat.from_spec('$CHAR10.') == xport.Informat('$CHAR', 10, 0)
 
     def test_spec_numeric(self):
         """
         Verify parsing from an informat specification.
         """
-        assert xport.Informat.from_spec('10.2') == xport.Informat(
-            name='',
-            length=10,
-            decimals=2,
-            vtype=xport.VariableType.NUMERIC,
-        )
-        assert xport.Informat.from_spec('dollar26.') == xport.Informat(
-            name='DOLLAR',
-            length=26,
-            decimals=0,
-            vtype=xport.VariableType.NUMERIC,
-        )
+        assert xport.Informat.from_spec('10.2') == xport.Informat('', 10, 2)
+        assert xport.Informat.from_spec('dollar26.') == xport.Informat('DOLLAR', 26, 0)
 
     def test_struct_unpack(self):
         """
@@ -94,49 +68,21 @@ class TestFormat:
     Verify parsing and display of variable formats.
     """
 
-    def test_init(self):
-        """
-        Verify data validation can be bypassed by init.
-        """
-        xport.Format(name=None, length=None, decimals=None, vtype=None, justify=None)
-
     def test_spec_character(self):
         """
         Verify parsing from an informat specification.
         """
-        justify = xport.FormatAlignment.LEFT
-        assert xport.Format.from_spec('$3.', justify) == xport.Format(
-            name='',
-            length=3,
-            decimals=0,
-            vtype=xport.VariableType.CHARACTER,
-            justify=justify,
-        )
-        justify = xport.FormatAlignment.RIGHT
-        assert xport.Format.from_spec('$CHAR10.', justify) == xport.Format(
-            name='CHAR',
-            length=10,
-            decimals=0,
-            vtype=xport.VariableType.CHARACTER,
-            justify=justify,
-        )
+        just = xport.FormatAlignment.LEFT
+        assert xport.Format.from_spec('$3.', just) == xport.Format('$', 3, 0, just)
+        just = xport.FormatAlignment.RIGHT
+        assert xport.Format.from_spec('$CHAR10.', just) == xport.Format('$CHAR', 10, 0, just)
 
     def test_spec_numeric(self):
         """
         Verify parsing from an informat specification.
         """
-        assert xport.Format.from_spec('10.2') == xport.Format(
-            name='',
-            length=10,
-            decimals=2,
-            vtype=xport.VariableType.NUMERIC,
-        )
-        assert xport.Format.from_spec('dollar26.') == xport.Format(
-            name='DOLLAR',
-            length=26,
-            decimals=0,
-            vtype=xport.VariableType.NUMERIC,
-        )
+        assert xport.Format.from_spec('10.2') == xport.Format('', 10, 2)
+        assert xport.Format.from_spec('dollar26.') == xport.Format('DOLLAR', 26, 0)
 
     def test_display(self):
         """
@@ -222,7 +168,7 @@ class TestVariableMetadata:
     def test_sas_format(self):
         v = xport.Variable(dtype='object')
         v.sas_format = '$CHAR10.'
-        assert v.sas_format.name == 'CHAR'
+        assert v.sas_format.name == '$CHAR'
         assert v.sas_format.length == 10
         assert v.sas_format.decimals == 0
         with pytest.raises(ValueError):

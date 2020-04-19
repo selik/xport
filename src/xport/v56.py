@@ -223,7 +223,7 @@ class Namestr(xport.Variable):
         """
         Parse a namestr from a byte string.
         """
-        LOG.debug(f'Unpacking namestr from {bytestring}')
+        # LOG.debug(f'Unpacking namestr from {bytestring}')
         size = len(bytestring)
         if size == 136:
             warnings.warn('File written on VAX/VMS, module behavior not tested')
@@ -275,24 +275,26 @@ class Namestr(xport.Variable):
         )
 
 
-class Member(xport.Dataset):
+class MemberHeader(xport.Dataset):
     """
     SAS library member metadata from a SAS Version 5 or 6 Transport file.
+
+    While this class extends the Dataset class, and thereby is a
+    subclass of Pandas' DataFrame, it is expected to be always empty.
+    Instead of storing data as a DataFrame, it will keep a reference to
+    a ``memoryview`` of the data (observations) as in an XPORT-format
+    document.
     """
 
-    def __init__(self, contents):
+    _metadata = xport.Dataset._metadata + ['observations']
+
+    def __init__(self, *args, **kwds):
         """
-        Initialize a MemberHeader from a parent Contents instance.
+        Verify empty.
         """
-        self.data = contents.data
-        self.name = contents.name
-        self.label = contents.label
-        self.type = contents.type
-        self.os = contents.os
-        self.version = contents.version
-        self.created = contents.created
-        self.modified = contents.modified
-        contents.data.sas = self
+        super().__init__(*args, **kwds)
+        if not self.empty:
+            LOG.warning(f'{type(self).__name__} has {len(self)} rows, expected 0')
 
     # 4. Member header records
     #    Both of these records occur for every member in the file.
@@ -374,57 +376,54 @@ class Member(xport.Dataset):
     )
 
     @classmethod
-    def finditer(cls, bytestring):
+    def findall(cls, bytestring):
         """
         Parse SAS library member headers from a byte string.
         """
-        mview = memoryview(bytestring)
         LOG.debug('Searching for library members ...')
-        matches = list(cls.pattern.finditer(mview))
+        matches = list(cls.pattern.finditer(bytestring))
 
         if not matches:
             warnings.warn('No library members found')
-            lines = [mview[i * 80:(i + 1) * 80] for i in range(6)]
+            lines = [bytestring[i * 80:(i + 1) * 80] for i in range(6)]
             LOG.debug(f'Byte string begins with' + '\n%s' * len(lines), *lines)
             return
 
         headers = []
         for mo in matches:
+            variables = []
             LOG.info(f'Found library member {mo["name"]!r}')
-            variables = {}
             stride = int(mo['descriptor_size'])
             for i in range(0, len(mo['namestrs']), stride):
                 b = mo['namestrs'][i:i + stride]
                 if len(b) == stride:
-                    v = Namestr.unpack(b)
-                    variables[v.name] = v
+                    variables.append(Namestr.unpack(b))
             if len(variables) != int(mo['n_variables']):
                 raise ValueError(f'Expected {mo["n_variables"]}, got {len(variables)}')
-            data = {v.name: v.data for v in sorted(variables.values(), key=lambda v: v.number)}
-            df = xport.Member(data)
-            for k, series in df.items():
-                series.sas = variables[k]
-            h = cls(df.sas)
-            h.name = mo['name'].strip(b'\x00').decode('ascii').strip()
-            h.label = mo['label'].strip(b'\x00').decode('ascii').strip()
-            h.type = mo['type'].strip(b'\x00').decode('ascii').strip()
-            h.os = mo['os'].strip(b'\x00').decode('ascii').strip()
-            h.version = mo['version'].strip().decode('ascii')
-            h.created = strptime(mo['created'])
-            h.modified = strptime(mo['modified'])
-            LOG.debug(f'Parsed member header {h.name} with {len(variables)} variables')
+            data = {v.sas_name: v for v in sorted(variables, key=lambda v: v.sas_variable_number)}
+            h = cls(data)
+            h.sas_name = mo['name'].strip(b'\x00').decode('ascii').strip()
+            h.sas_label = mo['label'].strip(b'\x00').decode('ascii').strip()
+            h.sas_dataet_type = mo['type'].strip(b'\x00').decode('ascii').strip()
+            h.sas_os = mo['os'].strip(b'\x00').decode('ascii').strip()
+            h.sas_version = mo['version'].strip().decode('ascii')
+            h.sas_dataet_created = strptime(mo['created'])
+            h.sas_dataet_modified = strptime(mo['modified'])
+            LOG.debug(f'Parsed member header {h.sas_name} with {len(variables)} variables')
             headers.append(h)
 
-        ends = [mo.end(0) for mo in matches]
-        starts = [mo.start(0) for mo in matches]
-        chunks = (mview[i:j] for i, j in zip(ends, starts[1:] + [None]))
-        for h, chunk in zip(headers, chunks):
-            rows = pd.DataFrame(h.parse_observations(chunk))
-            h.data = pd.concat([h.data, rows])
-            # BUG: Argh! Every time we change columns, we lose the series accessors.
-            h.data.sas = h
-            LOG.info('Parsed dataframe for %s\n%s', h.name, h.info())
-            yield h
+        return headers
+
+        # ends = [mo.end(0) for mo in matches]
+        # starts = [mo.start(0) for mo in matches]
+        # chunks = (mview[i:j] for i, j in zip(ends, starts[1:] + [None]))
+        # for h, chunk in zip(headers, chunks):
+        #     rows = pd.DataFrame(h.parse_observations(chunk))
+        #     h.data = pd.concat([h.data, rows])
+        #     # BUG: Argh! Every time we change columns, we lose the series accessors.
+        #     h.data.sas = h
+        #     LOG.info('Parsed dataframe for %s\n%s', h.name, h.info())
+        #     yield h
 
     # 9. Data records
     #    Data records are streamed in the same way that namestrs are.

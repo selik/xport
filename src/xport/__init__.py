@@ -46,50 +46,32 @@ class Informat:
     SAS variable informat.
     """
 
-    templates = {
-        VariableType.CHARACTER: '${name}{w}.',
-        VariableType.NUMERIC: '{name}{w}.{d}',
-        # 'Date/Time': '{name}{w}.',
-    }
-
-    patterns = {
-        VariableType.CHARACTER: r'^\$(?P<name>[A-Z0-9]*?)(?P<w>\d+)\.$',
-        VariableType.NUMERIC: r'^(?P<name>[A-Z0-9]*?)(?P<w>\d+)\.(?P<d>\d*)$',
-        # 'Date/Time': r'^(?P<name>[A-Z0-9]*?)(?P<w>\d+)\.$',
-    }
-    patterns = {k: re.compile(v, re.IGNORECASE) for k, v in patterns.items()}
+    pattern = re.compile(
+        r'^(?P<name>\$?[A-Z0-9]*?)(?P<w>\d+)\.(?P<d>\d+)?$',
+        re.IGNORECASE,
+    )
 
     #    char8 niform;      /* NAME OF INPUT FORMAT                   */
     #    short nifl;         /* INFORMAT LENGTH ATTRIBUTE              */
     #    short nifd;        /* INFORMAT NUMBER OF DECIMALS            */
     byte_structure = '>8shh'
 
-    def __init__(self, name='', length=0, decimals=0, vtype=None):
+    def __init__(self, name='', length=0, decimals=0):
         """
         Initialize an input format.
         """
         self._name = name
         self._length = length
         self._decimals = decimals
-        self._vtype = vtype
 
     def __str__(self):
         """
         Pleasant display value.
         """
-        try:
-            fmt = self.templates[self.vtype]
-        except KeyError:
-            return f'<{type(self).__name__}> ' + ', '.join([
-                f'name={self.name!r}',
-                f'length={self.length!r}',
-                f'decimals={self.decimals!r}',
-                f'vtype={self.vtype!r}',
-            ])
-        if self.vtype == VariableType.CHARACTER:
-            return fmt.format(name=self.name, w=self.length)
+        if not (self.name or self.length or self.decimals):
+            return ''
         decimals = self.decimals if self.decimals else ''
-        return fmt.format(name=self.name, w=self.length, d=decimals)
+        return f'{self.name}{self.length}.{decimals}'
 
     def __repr__(self):
         """
@@ -102,7 +84,7 @@ class Informat:
         XPORT-format byte string.
         """
         fmt = self.byte_structure
-        name = self.name.encode('ascii')
+        name = self.name.encode('ascii').ljust(8)
         if len(name) > 8:
             raise ValueError('ASCII-encoded {name!r} longer than 8 bytes')
         return struct.pack(fmt, name, self.length, self.decimals)
@@ -121,14 +103,9 @@ class Informat:
         """
         Create an informat from unpacked struct tokens.
         """
-        LOG.debug(f'Creating informat from struct tokens {(name, length, decimals)}')
-        # TODO: Determine vtype when unpacking.  Perhaps there's a list
-        #       of format names we can grab from SAS documentation.
-        #       That wouldn't solve the edge case of a numeric vtype
-        #       with no decimals specification and no name, which would
-        #       be indistinguishable from a character vtype.
+        # LOG.debug(f'Creating informat from struct tokens {(name, length, decimals)}')
         name = name.strip(b'\x00').decode('ascii').strip()
-        return cls(name=name, length=length, decimals=decimals, vtype=None)
+        return cls(name=name, length=length, decimals=decimals)
 
     @classmethod
     def from_spec(cls, spec, *args, **kwds):
@@ -136,31 +113,19 @@ class Informat:
         Create an informat from a text specification.
         """
         LOG.debug(f'Parsing informat specification {spec}')
-        for vtype, pattern in cls.patterns.items():
-            mo = pattern.fullmatch(spec)
-            if mo is not None:
-                break
-        else:
-            raise ValueError(f'Unrecognized informat {spec}')
+        mo = cls.pattern.fullmatch(spec)
+        if mo is None:
+            raise ValueError(f'Invalid informat {spec}')
         name = mo['name'].upper()
-        if len(name) > 8:
-            raise ValueError(f'Format name {name} is longer than 8 characters')
+        bytestring = name.encode('ascii')
+        if len(bytestring) > 8:
+            raise ValueError(f'ASCII-encoded name {bytestring} longer than 8 characters')
         length = int(mo.group('w'))
         try:
-            decimals = mo.group('d')
-        except IndexError:
+            decimals = int(mo.group('d'))
+        except (TypeError, IndexError):
             decimals = 0
-        else:
-            if decimals != '':
-                decimals = int(decimals)
-            else:
-                decimals = 0
-        return cls(*args, name=name, length=length, decimals=decimals, vtype=vtype, **kwds)
-
-    @property
-    def vtype(self):
-        """Variable type."""
-        return self._vtype
+        return cls(*args, name=name, length=length, decimals=decimals, **kwds)
 
     @property
     def name(self):
@@ -182,7 +147,6 @@ class Informat:
 
     def __eq__(self, other):
         """Equality."""
-        # TODO: Figure out vtype from struct tokens, then include in eq.
         if not isinstance(other, Informat):
             raise TypeError(f"Can't compare {type(self).__name__} with {type(other).__name__}")
         attributes = [
@@ -204,11 +168,11 @@ class Format(Informat):
     #    short nfj;         /* 0=LEFT JUSTIFICATION, 1=RIGHT JUST     */
     byte_structure = '>8shhh'
 
-    def __init__(self, *args, justify=FormatAlignment.LEFT, **kwds):
+    def __init__(self, name='', length=0, decimals=0, justify=FormatAlignment.LEFT):
         """
         Initialize a SAS variable format.
         """
-        super().__init__(*args, **kwds)
+        super().__init__(name, length, decimals)
         self._justify = justify
 
     def __bytes__(self):
@@ -217,7 +181,7 @@ class Format(Informat):
         """
         # TODO: It'd be nice to avoid copy-pasting code from parent.
         fmt = self.byte_structure
-        name = self.name.encode('ascii')
+        name = self.name.encode('ascii').ljust(8)
         if len(name) > 8:
             raise ValueError('ASCII-encoded {name!r} longer than 8 bytes')
         length = self.length if self.length is not None else 0
@@ -229,7 +193,7 @@ class Format(Informat):
         """
         Create a format from unpacked struct tokens.
         """
-        LOG.debug(f'Creating format from struct tokens {(name, length, decimals, justify)}')
+        # LOG.debug(f'Creating format from struct tokens {(name, length, decimals, justify)}')
         form = super().from_struct_tokens(name, length, decimals)
         form._justify = justify
         return form
@@ -294,6 +258,8 @@ class Variable(pd.Series):
         self.sas_variable_type  # Force dtype validation.
 
         # Bogus!  I thought ``_metadata`` magic would copy this over.
+        # But it doesn't work for some cases, like subclasses
+        # constructed from Variable instances.
         if isinstance(data, Variable):
             self._sas_name = data.sas_name
             self._sas_label = data.sas_label
@@ -775,3 +741,11 @@ class Library(MutableMapping):
         same_keys = set(self) == set(other)
         same_values = all((self[k] == other[k]).all(axis=None) for k in self)
         return same_keys and same_values
+
+
+def from_columns():
+    """
+
+    """
+    warnings.warn('', DeprecationWarning)
+    # Gotta stay backwards compatible.  The FDA has written docs.

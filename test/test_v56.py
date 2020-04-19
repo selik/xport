@@ -64,10 +64,10 @@ SAS     ECON    SASDATA 9.3     W32_7PRO                        13NOV15:10:35:08
 13NOV15:10:35:08                Blank-padded dataset label                      \
 HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!000000000400000000000000000000  \
 \x00\x02\x00\x00\x00\x08\x00\x01VIT_STATVital status                            \
-        \x00\x05\x00\x00\x00\x00\x00\x00        \x00\x00\x00\x00\x00\x00\x00\x00\
+$       \x00\x05\x00\x00\x00\x00\x00\x00        \x00\x00\x00\x00\x00\x00\x00\x00\
 \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
 \x00\x02\x00\x00\x00\x08\x00\x02ECON    Economic status                         \
-CHAR    \x00\x04\x00\x00\x00\x01\x00\x00        \x00\x00\x00\x00\x00\x00\x00\x08\
+$CHAR   \x00\x04\x00\x00\x00\x01\x00\x00        \x00\x00\x00\x00\x00\x00\x00\x08\
 \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
 \x00\x01\x00\x00\x00\x08\x00\x03COUNT   Count                                   \
 COMMA   \x00\x08\x00\x00\x00\x00\x00\x00        \x00\x00\x00\x00\x00\x00\x00\x10\
@@ -103,6 +103,23 @@ def namestr_bytestring(library_bytestring):
     return library_bytestring[index:index + 140]
 
 
+@pytest.fixture(scope='module')
+def dataset(library):
+    """
+    Example dataset.
+    """
+    return library['ECON']
+
+
+@pytest.fixture(scope='module')
+def dataset_bytestring(library_bytestring):
+    """
+    Example dataset bytestring.
+    """
+    index = 80 * 3
+    return library_bytestring[index:]
+
+
 class TestNamestr:
 
     def test_unpack(self, variable, namestr_bytestring):
@@ -123,30 +140,31 @@ class TestNamestr:
         assert b == namestr_bytestring
 
 
-# class TestMemberHeader:
+class TestMemberHeader:
 
-#     def test_parse(self, library, library_bytestring):
-#         h = library['ECON'].sas
-#         parsed = next(xport.v56.MemberHeader.finditer(library_bytestring))
-#         # assert h == parsed
-#         assert h.name == parsed.name
-#         assert h.label == parsed.label
-#         assert h.type == parsed.type
-#         assert h.created == parsed.created
-#         assert h.modified == parsed.modified
-#         assert h.os == parsed.os
-#         assert h.version == parsed.version
-#         left = [h.data[k].sas for k in h.data]
-#         right = [parsed.data[k].sas for k in parsed.data]
-#         for a, b in zip(left, right):
-#             assert a.name == b.name
-#             assert a.label == b.label
-#             assert a.type == b.type
-#             # assert a.format == b.format
-#             # assert a.iformat == b.iformat
-#             assert a.length == b.length
-#             assert a.number == b.number
-#             assert a.position == b.position
+    def test_parse(self, dataset, dataset_bytestring):
+        df = dataset
+        headers = xport.v56.MemberHeader.findall(dataset_bytestring)
+
+        # assert h.name == parsed.name
+        # assert h.label == parsed.label
+        # assert h.type == parsed.type
+        # assert h.created == parsed.created
+        # assert h.modified == parsed.modified
+        # assert h.os == parsed.os
+        # assert h.version == parsed.version
+        # left = [h.data[k].sas for k in h.data]
+        # right = [parsed.data[k].sas for k in parsed.data]
+        # for a, b in zip(left, right):
+        #     assert a.name == b.name
+        #     assert a.label == b.label
+        #     assert a.type == b.type
+        #     # assert a.format == b.format
+        #     # assert a.iformat == b.iformat
+        #     assert a.length == b.length
+        #     assert a.number == b.number
+        #     assert a.position == b.position
+
 
 # def test_parse_observations(self, library, library_bytestring):
 #     df = library['ECON']
