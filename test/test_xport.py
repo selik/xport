@@ -2,10 +2,8 @@
 Tests for the core interface.
 """
 
-# Standard Library
-from datetime import datetime
-
 # Community Packages
+import pandas as pd
 import pytest
 
 # Xport Modules
@@ -46,8 +44,6 @@ class TestInformat:
             assert form.name == cpy.name
             assert form.length == cpy.length
             assert (form.decimals == cpy.decimals or form.decimals is None and cpy.decimals == 0)
-            # TODO: Determine vtype when unpacking an iformat.
-            # assert form.vtype == cpy.vtype
 
     def test_display(self):
         """
@@ -103,87 +99,63 @@ class TestVariableMetadata:
     Verify set/get and validation of variable metadata.
     """
 
+    @staticmethod
+    def compare_metadata(got, expected):
+        for name in expected._metadata:
+            assert getattr(got, name) == getattr(expected, name)
+        assert got.vtype == expected.vtype
+
+    def test_init(self):
+        """
+        Verify initialization.
+        """
+        v = xport.Variable(dtype='float')
+        for name in v._metadata:
+            getattr(v, name)  # Does not raise an error.
+
     def test_copy_metadata(self):
         """
         Verify ``Series`` methods that copy will keep SAS metadata.
         """
-        v = xport.Variable(name='a', dtype='string')
-        v.sas_name = 'Yo!'
-        cpy = v.copy()
-        assert isinstance(cpy, xport.Variable)
-        assert v.sas_name == cpy.sas_name
+        v = xport.Variable(
+            name='A',
+            label='Alpha',
+            format='$CHAR4.',
+            dtype='string',
+        )
+        self.compare_metadata(v.copy(), v)
+        self.compare_metadata(v.append(xport.Variable(['1'])), v)
 
-    def test_sas_name(self):
-        v = xport.Variable(name='a', dtype='string')
-        assert v.sas_name == v.name
-        with pytest.warns(UserWarning):
-            v.sas_name = 'a' * 9
+    def test_format(self):
+        v = xport.Variable(dtype='object')
+        v.format = value = '$CHAR10.'
+        assert v.format == xport.Format.from_spec(value)
         with pytest.raises(ValueError):
-            v.sas_name = 'a' * 33
-
-    def test_sas_label(self):
-        v = xport.Variable(name='a', dtype='string')
-        assert v.sas_label == ''
-        v.sas_label = value = 'Example'
-        assert v.sas_label == value
-        with pytest.warns(UserWarning):
-            v.sas_label = 'a' * 41
+            v.format = ''
         with pytest.raises(ValueError):
-            v.sas_label = 'a' * 257
+            v.format = '$abcdefghi1.'
 
-    def test_sas_variable_type(self):
+    def test_informat(self):
+        v = xport.Variable(dtype='object')
+        v.informat = value = '10.2'
+        assert v.informat == xport.Informat.from_spec(value)
+        with pytest.raises(ValueError):
+            v.informat = '1.2.3'
+
+    @pytest.mark.skip('Not implemented')
+    def test_vtype(self):
         character = ['string', 'object']
         numeric = ['float', 'int', 'bool']
         invalid = ['datetime64[ns]']
         for dtype in character:
             v = xport.Variable(dtype=dtype)
-            assert v.sas_variable_type == xport.VariableType.CHARACTER
+            assert v.vtype == xport.VariableType.CHARACTER
         for dtype in numeric:
             v = xport.Variable(dtype=dtype)
-            assert v.sas_variable_type == xport.VariableType.NUMERIC
+            assert v.vtype == xport.VariableType.NUMERIC
         for dtype in invalid:
             with pytest.raises(TypeError):
                 xport.Variable(dtype=dtype)
-
-    def test_sas_variable_length(self):
-        v = xport.Variable(['a', 'ab'])
-        assert v.sas_variable_length == v.str.len().max()
-        v.sas_variable_length = value = 10
-        assert v.sas_variable_length == value
-        with pytest.raises(ValueError):
-            v.sas_variable_length = 0
-
-    def test_sas_variable_number(self):
-        v = xport.Variable(dtype='object')
-        assert v.sas_variable_number is None
-        v.sas_variable_number = value = 1
-        assert v.sas_variable_number == value
-
-    def test_sas_variable_position(self):
-        v = xport.Variable(dtype='object')
-        assert v.sas_variable_position is None
-        v.sas_variable_position = value = 1
-        assert v.sas_variable_position == value
-
-    def test_sas_format(self):
-        v = xport.Variable(dtype='object')
-        v.sas_format = '$CHAR10.'
-        assert v.sas_format.name == '$CHAR'
-        assert v.sas_format.length == 10
-        assert v.sas_format.decimals == 0
-        with pytest.raises(ValueError):
-            v.sas_format = ''
-        with pytest.raises(ValueError):
-            v.sas_format = '$abcdefghi1.'
-
-    def test_sas_iformat(self):
-        v = xport.Variable(dtype='object')
-        v.sas_iformat = '10.2'
-        assert v.sas_iformat.name == ''
-        assert v.sas_iformat.length == 10
-        assert v.sas_iformat.decimals == 2
-        with pytest.raises(ValueError):
-            v.sas_iformat = '1.2.3'
 
 
 class TestDatasetMetadata:
@@ -191,80 +163,62 @@ class TestDatasetMetadata:
     Verify set/get and validation of dataset metadata.
     """
 
-    def test_sas_name(self):
-        df = xport.Dataset()
-        df.sas_name = value = 'EXAMPLE1'
-        assert df.sas_name == value
-        with pytest.raises(ValueError):
-            df.sas_name = 'a' * 9
-        with pytest.raises(UnicodeEncodeError):
-            df.sas_name = '\N{snowman}'
-        with pytest.raises((TypeError, AttributeError)):
-            df.sas_name = 0
+    @staticmethod
+    def compare_metadata(got, expected):
+        for name in expected._metadata:
+            assert getattr(got, name) == getattr(expected, name)
+        for k, v in expected.items():
+            TestVariableMetadata.compare_metadata(got[k], v)
+        assert (got.contents == expected.contents).all(axis=None)
 
-    def test_sas_label(self):
-        df = xport.Dataset()
-        df.sas_label = value = 'Example label'
-        assert df.sas_label == value
-        with pytest.raises(ValueError):
-            df.sas_label = 'a' * 41
-
-    def test_sas_dataset_type(self):
-        df = xport.Dataset()
-        df.sas_dataset_type = value = 'DATA'
-        assert df.sas_dataset_type == value
-        with pytest.raises(ValueError):
-            df.sas_dataset_type = 'a' * 9
-
-    def test_sas_dataset_created(self):
-        df = xport.Dataset()
-        df.sas_dataset_created = value = datetime.now()
-        assert df.sas_dataset_created == value
-        with pytest.raises(ValueError):
-            df.sas_dataset_created = datetime(1800, 1, 1)
-        with pytest.raises((TypeError, AttributeError)):
-            df.sas_dataset_created = '2000-Jan-01'
-
-    def test_sas_dataset_modified(self):
-        df = xport.Dataset()
-        df.sas_dataset_modified = value = datetime(1920, 1, 1)
-        assert df.sas_dataset_modified == value
-        with pytest.raises(ValueError):
-            df.sas_dataset_modified = datetime(2100, 1, 1)
-        with pytest.raises(TypeError):
-            df.sas_dataset_modified = 1
-
-    def test_sas_os(self):
-        df = xport.Dataset()
-        df.sas_os = value = 'MAC10.15'
-        assert df.sas_os == value
-        with pytest.raises(ValueError):
-            df.sas_os = 'a' * 9
-
-    def test_sas_version(self):
-        df = xport.Dataset()
-        df.sas_os = value = '9.3'
-        assert df.sas_os == value
-        with pytest.raises(ValueError):
-            df.sas_version = 'a' * 9
-
-    def test_variable_numbers(self):
+    def test_init(self):
         """
-        Verify enforcement of Variable numbers matching Dataset order.
+        Verify initialization.
         """
-        v = xport.Variable(name='test_variable_numbers', dtype='float')
-        v.sas_variable_number = 10
-        with pytest.warns(UserWarning, match=r'SAS variable numbers'):
-            xport.Dataset({v.sas_name: v})
+        v = xport.Dataset()
+        for name in v._metadata:
+            getattr(v, name)  # Does not raise an error.
 
-    def test_variable_positions(self):
+    def test_copy_metadata(self):
         """
-        Verify enforcement of Variable positions matching Dataset order.
+        Verify ``DataFrame`` methods that copy will keep SAS metadata.
         """
-        v = xport.Variable(name='test_variable_positions', dtype='float')
-        v.sas_variable_position = 10
-        with pytest.warns(UserWarning, match=r'SAS variable positions'):
-            xport.Dataset({v.sas_name: v})
+        ds = xport.Dataset(
+            data={
+                'a': [1],
+                'b': xport.Variable(['x'], label='Beta')
+            },
+            name='EXAMPLE',
+            label='Example',
+        )
+        self.compare_metadata(ds.copy(), ds)
+        self.compare_metadata(
+            ds.append(pd.DataFrame({
+                'a': [2],
+                'b': ['y'],
+            })),
+            ds,
+        )
+
+    def test_contents(self):
+        """
+        Verify variables metadata summary.
+        """
+        ds = xport.Dataset(
+            data={
+                'a': [1],
+                'b': xport.Variable(['x'], label='Beta'),
+                'c': [None],
+            },
+            name='EXAMPLE',
+            label='Example',
+        )
+        ds['a'].vtype = xport.VariableType.NUMERIC
+        ds['b'].vtype = xport.VariableType.CHARACTER
+        got = ds.contents
+        assert list(got.index) == [1, 2, 3]
+        assert list(got['Label']) == ['', 'Beta', '']
+        assert list(got['Type']) == ['Numeric', 'Character', '']
 
 
 class TestLibrary:
@@ -276,13 +230,28 @@ class TestLibrary:
         xport.Library()
 
     def test_create_from_mapping(self):
-        lib = xport.Library({'': xport.Dataset()})
-        assert '' in lib
+        with pytest.warns(UserWarning, match=r'Set dataset name'):
+            lib = xport.Library({'x': xport.Dataset()})
+        assert 'x' in lib
         with pytest.raises(ValueError):
-            xport.Library({'x': xport.Dataset(sas_name='y')})
+            xport.Library({'x': xport.Dataset(name='y')})
 
     def test_create_from_list(self):
         lib = xport.Library([xport.Dataset()])
-        assert '' in lib
+        assert None in lib
         with pytest.warns(UserWarning, match=r'More than one dataset named'):
             xport.Library([xport.Dataset(), xport.Dataset()])
+
+
+class TestLegacy:
+    """
+    Verify deprecated API still works.
+    """
+
+    # Gotta stay backwards compatible.  The FDA has written docs.
+
+    def test_from_columns(self):
+        pass
+
+    def test_from_rows(self):
+        pass

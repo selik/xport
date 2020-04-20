@@ -9,7 +9,6 @@ import re
 import struct
 import warnings
 from collections.abc import Mapping, MutableMapping
-from datetime import datetime
 from io import StringIO
 
 # Community Packages
@@ -94,7 +93,6 @@ class Informat:
         """
         Create an informat from an XPORT-format bytestring.
         """
-        LOG.debug(f'Unpacking informat from {bytestring}')
         fmt = cls.byte_structure
         return cls.from_struct_tokens(*struct.unpack(fmt, bytestring))
 
@@ -103,7 +101,6 @@ class Informat:
         """
         Create an informat from unpacked struct tokens.
         """
-        # LOG.debug(f'Creating informat from struct tokens {(name, length, decimals)}')
         name = name.strip(b'\x00').decode('ascii').strip()
         return cls(name=name, length=length, decimals=decimals)
 
@@ -112,7 +109,6 @@ class Informat:
         """
         Create an informat from a text specification.
         """
-        LOG.debug(f'Parsing informat specification {spec}')
         mo = cls.pattern.fullmatch(spec)
         if mo is None:
             raise ValueError(f'Invalid informat {spec}')
@@ -193,7 +189,6 @@ class Format(Informat):
         """
         Create a format from unpacked struct tokens.
         """
-        # LOG.debug(f'Creating format from struct tokens {(name, length, decimals, justify)}')
         form = super().from_struct_tokens(name, length, decimals)
         form._justify = justify
         return form
@@ -231,43 +226,74 @@ class Variable(pd.Series):
     ``Variable`` extends Pandas' ``Series``, adding SAS metadata.
     """
 
-    # Register metadata with Pandas' convoluted attribute accessors.
     _metadata = [
-        '_sas_name',
-        '_sas_label',
-        '_sas_format',
-        '_sas_iformat',
-        # '_sas_variable_type',
-        '_sas_variable_number',
-        '_sas_variable_position',
-        '_sas_variable_length',
+        'label',
+        'width',
+        'vtype',
+        '_format',
+        '_informat',
     ]
 
-    def __init__(self, *args, **kwds):
+    def copy_metadata(self, other):
+        """
+        Copy metadata from another Variable.
+        """
+        if isinstance(other, Variable):
+            for name in self._metadata:
+                value = getattr(self, name, None)
+                if value is None:
+                    value = getattr(other, name, None)
+                object.__setattr__(self, name, value)
+
+    def __repr__(self):
+        """REPL-format."""
+        return f'<{super().__repr__()} label={self.label!r}>'
+
+    def __init__(
+        self,
+        data=None,
+        index=None,
+        dtype=None,
+        name=None,
+        copy=False,
+        fastpath=False,
+        label=None,
+        vtype=None,
+        width=None,
+        format=None,
+        informat=None,
+        **kwds,
+    ):
         """
         Initialize SAS variable metadata.
         """
-        if 'data' in kwds:
-            data = kwds['data']
-        elif args:
-            data = args[0]
+        metadata = {
+            'label': label,
+            'vtype': vtype,
+            'width': width,
+            'format': format,
+            'informat': informat,
+        }
+        super().__init__(data, index, dtype, name, copy, fastpath, **kwds)
+        for name, value in metadata.items():
+            if value is not None:
+                setattr(self, name, value)
+        self.copy_metadata(data)
+        for name, value in metadata.items():
+            setattr(self, name, getattr(self, name, value))
+
+    def __finalize__(self, other, method=None, **kwds):
+        """
+        Extend Series finalize to handle more methods.
+        """
+        self = super().__finalize__(other, method, **kwds)
+        if method == 'concat':
+            first, *rest = other.objs
+            source = first
         else:
-            data = None
-
-        super().__init__(*args, **kwds)
-        self.sas_variable_type  # Force dtype validation.
-
-        # Bogus!  I thought ``_metadata`` magic would copy this over.
-        # But it doesn't work for some cases, like subclasses
-        # constructed from Variable instances.
-        if isinstance(data, Variable):
-            self._sas_name = data.sas_name
-            self._sas_label = data.sas_label
-            self._sas_format = data.sas_format
-            self._sas_iformat = data.sas_iformat
-            self._sas_variable_number = data.sas_variable_number
-            self._sas_variable_position = data.sas_variable_position
-            self._sas_variable_length = data.sas_variable_length
+            source = other
+        self.copy_metadata(source)
+        return self
 
     @property
     def _constructor(self):
@@ -286,142 +312,46 @@ class Variable(pd.Series):
         raise NotImplementedError("Can't copy SAS variable metadata to dataframe")
 
     @property
-    def sas_name(self):
-        """
-        SAS variable name.
-        """
-        try:
-            return self._sas_name
-        except AttributeError:
-            return self.name
-
-    @sas_name.setter
-    def sas_name(self, value):
-        bytestring = value.encode('ascii')
-        if len(bytestring) > 32:
-            raise ValueError(f'ASCII-encoded name {bytestring} longer than 32 characters')
-        if len(bytestring) > 8:
-            warnings.warn(
-                f'ASCII-encoded name {bytestring} is longer than 8 characters.  SAS'
-                'Version 5 or 6 Transport (XPORT) Format limits names to 8 characters.'
-            )
-        self._sas_name = value
-
-    @property
-    def sas_label(self):
-        """
-        SAS variable label.
-        """
-        try:
-            return self._sas_label
-        except AttributeError:
-            return ''
-
-    @sas_label.setter
-    def sas_label(self, value):
-        bytestring = value.encode('ascii')
-        if len(bytestring) > 256:
-            raise ValueError(f'ASCII-encoded label {bytestring} is longer than 256 characters')
-        if len(bytestring) > 40:
-            warnings.warn(
-                f'ASCII-encoded label {bytestring} is longer than 40 characters.  SAS'
-                'Version 5 or 6 Transport (XPORT) Format limits labels to 40 characters.'
-            )
-        self._sas_label = value
-
-    @property
-    def sas_variable_type(self):
-        """
-        SAS variable type, either numeric or character.
-        """
-        if self.dtype.kind in {'f', 'i'}:
-            return VariableType.NUMERIC
-        elif self.dtype.kind == 'O':
-            return VariableType.CHARACTER
-        elif self.dtype.kind == 'b':
-            # We'll encode Boolean columns as 1 if True else 0.
-            return VariableType.NUMERIC
-        raise TypeError(f'{type(self).__name__}.dtype {self.dtype} not supported')
-
-    @property
-    def sas_variable_length(self):
-        """
-        SAS variable maximum length in bytes.
-        """
-        if self.sas_variable_type == VariableType.NUMERIC:
-            return 8
-        fact = self.str.len().max() if not self.empty else 0
-        jure = getattr(self, '_sas_variable_length', None)
-        if jure is not None:
-            if jure < fact:
-                raise ValueError('Maximum string length greater than SAS variable length')
-            return jure
-        return fact
-
-    @sas_variable_length.setter
-    def sas_variable_length(self, value):
-        if self.sas_variable_type == VariableType.NUMERIC and value != 8:
-            raise NotImplementedError('Numeric variables must be length 8')
-        fact = self.str.len().max() if not self.empty else 0
-        if value < fact:
-            raise ValueError(f'Maximum string length greater than {value}')
-        self._sas_variable_length = value
-
-    @property
-    def sas_variable_number(self):
-        """
-        Index of the SAS variable within the dataset.
-        """
-        return getattr(self, '_sas_variable_number', None)
-
-    @sas_variable_number.setter
-    def sas_variable_number(self, value):
-        if value < 1 or value % 1:
-            raise ValueError(f'Variable number {value} should be a natural number')
-        self._sas_variable_number = int(value)
-
-    @property
-    def sas_variable_position(self):
-        """
-        Byte-index of the SAS variable field within an observation.
-        """
-        return getattr(self, '_sas_variable_position', None)
-
-    @sas_variable_position.setter
-    def sas_variable_position(self, value):
-        if value < 0 or value % 1:
-            raise ValueError(f'Variable position {value} should be a whole number')
-        self._sas_variable_position = int(value)
-
-    @property
-    def sas_format(self):
+    def format(self):
         """
         SAS variable format.
         """
-        return getattr(self, '_sas_format', Format())
+        return self._format
 
-    @sas_format.setter
-    def sas_format(self, value):
-        # TODO: Enable setting format alignment.  Currently one must
-        #       bypass the setter and assign to the private attribute.
+    @format.setter
+    def format(self, value):
         if value is None:
-            self._sas_format = None
+            self._format = None
+        elif isinstance(value, Format):
+            self._format = value
         else:
-            self._sas_format = Format.from_spec(value)
+            self._format = Format.from_spec(value)
+
+        if self.format and self.format.name.startswith('$'):
+            self.vtype = VariableType.CHARACTER
+        elif self.format and (self.format.name or self.format.decimals):
+            self.vtype = VariableType.NUMERIC
 
     @property
-    def sas_iformat(self):
+    def informat(self):
         """
         SAS variable informat.
         """
-        return getattr(self, '_sas_iformat', Informat())
+        return self._informat
 
-    @sas_iformat.setter
-    def sas_iformat(self, value):
+    @informat.setter
+    def informat(self, value):
         if value is None:
-            self._sas_iformat = None
+            self._informat = None
+        elif isinstance(value, Informat):
+            self._informat = value
         else:
-            self._sas_iformat = Informat.from_spec(value)
+            self._informat = Informat.from_spec(value)
+
+        if self.informat and self.informat.name.startswith('$'):
+            self.vtype = VariableType.CHARACTER
+        elif self.informat and (self.informat.name or self.informat.decimals):
+            self.vtype = VariableType.NUMERIC
 
 
 class Dataset(pd.DataFrame):
@@ -432,76 +362,101 @@ class Dataset(pd.DataFrame):
     """
 
     _metadata = [
-        '_sas_name',
-        '_sas_label',
-        '_sas_dataset_type',
-        '_sas_dataset_created',
-        '_sas_dataset_modified',
-        '_sas_os',
-        '_sas_version',
+        'name',
+        'label',
+        'dataset_type',
+        'created',
+        'modified',
+        'sas_os',
+        'sas_version',
+        # TODO: Consider including dataset type: {'DATA', 'VIEW', ''}.
     ]
 
-    def __init__(self, *args, sas_name=None, sas_label=None, **kwds):
+    def copy_metadata(self, other):
         """
-        Fix column order to match variable order if possible.
+        Copy metadata from a Dataset or mapping of Variables.
         """
-        # NOTE: Don't call ``.info()`` in ``__init__```.
-        #       It causes recursion!
+        if isinstance(other, Dataset):
+            for name in self._metadata:
+                object.__setattr__(self, name, getattr(other, name, None))
+        if isinstance(other, (Dataset, Mapping)):
+            for k, v in self.items():
+                v.copy_metadata(other[k])
 
-        if 'data' in kwds:
-            data = kwds['data']
-        elif args:
-            data = args[0]
+    def __repr__(self):
+        """REPL-format."""
+        return '\n'.join([
+            f'{type(self).__name__} (Name: {self.name})',
+            str(self.contents),
+            super().__repr__()
+        ])
+
+    def __init__(
+        self,
+        data=None,
+        index=None,
+        columns=None,
+        dtype=None,
+        copy=False,
+        name=None,
+        label=None,
+        dataset_type=None,
+        created=None,
+        modified=None,
+        sas_os=None,
+        sas_version=None,
+        **kwds,
+    ):
+        """
+        Initialize SAS dataset metadata.
+        """
+        metadata = {
+            'name': name,
+            'label': label,
+            'created': created,
+            'modified': modified,
+            'sas_os': sas_os,
+            'sas_version': sas_version,
+            'dataset_type': dataset_type,
+        }
+        super().__init__(data=data, index=index, columns=columns, dtype=dtype, copy=copy, **kwds)
+        for name, value in metadata.items():
+            if value is not None:
+                setattr(self, name, value)
+        self.copy_metadata(data)
+        for name, value in metadata.items():
+            setattr(self, name, getattr(self, name, value))
+
+    def __finalize__(self, other, method=None, **kwds):
+        """
+        Propagate metadata to a copy.
+        """
+        # TODO: Is the call to super redundant?
+        self = super().__finalize__(other, method, **kwds)
+        if method == 'concat':
+            first, *rest = other.objs
+            source = first
+        elif method == 'merge':
+            source = other.left
         else:
-            data = None
+            source = other
+        self.copy_metadata(source)
+        LOG.debug(f'{type(self).__name__}.__finalize__\n{self!r}')
+        return self
 
-        super().__init__(*args, **kwds)
-
-        if isinstance(data, Dataset):
-            self.sas_name = data.sas_name
-            self.sas_label = data.sas_label
-            self.sas_dataset_type = data.sas_dataset_type
-            self.sas_dataset_created = data.sas_dataset_created
-            self.sas_dataset_modified = data.sas_dataset_modified
-            self.sas_os = data.sas_os
-            self.sas_version = data.sas_version
-
-        if sas_name is not None:
-            self.sas_name = sas_name
-        if sas_label is not None:
-            self.sas_label = sas_label
-
-        if isinstance(data, (Mapping, Dataset)):
-            for k, v in data.items():
-                if isinstance(v, Variable):
-                    # Bypass attribute validation.
-                    self[k]._sas_name = v.sas_name
-                    self[k]._sas_label = v.sas_label
-                    self[k]._sas_format = v.sas_format
-                    self[k]._sas_iformat = v.sas_iformat
-                    self[k]._sas_variable_number = v.sas_variable_number
-                    self[k]._sas_variable_position = v.sas_variable_position
-                    self[k]._sas_variable_length = v.sas_variable_length
-
-        # p = 0
-        # for i, (k, v) in enumerate(self.items(), 1):
-        #     if v.sas_variable_number is None:
-        #         v.sas_variable_number = i
-        #     if v.sas_variable_position is None:
-        #         v.sas_variable_position = p
-        #     p += v.sas_variable_length
-        LOG.debug('Dataset variables\n%s', self.sas_variables)
-
-    def update_variable_number_and_position(self):
+    def __setitem__(self, key, value):
         """
-        Update variable number and position to match layout and lengths.
+        When inserting/updating a column, we must copy metadata.
         """
-        p = 0
-        for i, (k, v) in enumerate(self.items(), 1):
-            v.sas_variable_number = i
-            v.sas_variable_position = p
-            p += v.sas_variable_length
-        LOG.debug('Updated variable number and position\n%s', self.sas_variables)
+        # TODO: There are probably other ways Pandas adds columns to
+        #       a DataFrame.  We need to copy metadata in those, too.
+        old = self.iloc[:0].copy()
+        super().__setitem__(key, value)
+        if isinstance(value, Variable):
+            self[key].copy_metadata(value)
+        for k, v in old.items():
+            if k != key:
+                self[k].copy_metadata(v)
 
     @property
     def _constructor(self):
@@ -520,27 +475,27 @@ class Dataset(pd.DataFrame):
         return Variable
 
     @property
-    def sas_variables(self):
+    def contents(self):
         """
         Variable metadata, such as label, format, number, and position.
         """
-        # TODO: Can this dataframe be read-only?
-        # TODO: Does this unnecessarily make bunches of copies of the data?
         df = pd.DataFrame({
-            'Variable': [v.sas_name for k, v in self.items()],
-            'Type': [v.sas_variable_type.name.title() for k, v in self.items()],
-            'Length': [v.sas_variable_length for k, v in self.items()],
-            'Position': [v.sas_variable_position for k, v in self.items()],
-            'Format': [str(v.sas_format) for k, v in self.items()],
-            'Informat': [str(v.sas_iformat) for k, v in self.items()],
-            'Label': [v.sas_label for k, v in self.items()],
-        })
-        df.index = order = [v.sas_variable_number for k, v in self.items()]
+            'Variable': v.name,
+            'Type': v.vtype.name.title() if v.vtype is not None else '',
+            'Length': v.width,
+            'Format': str(v.format) if v.format is not None else '',
+            'Informat': str(v.informat) if v.informat is not None else '',
+            'Label': v.label if v.label is not None else '',
+        } for k, v in self.items())
+        if df.empty:
+            return df
+        df.index = df.index + 1
         df.index.name = '#'
-        if order != list(range(1, len(df) + 1)):
-            warnings.warn(f"SAS variable numbers {order} don't match column order")
-        if not df.empty and (df['Position'] != df['Length'].cumsum().shift().fillna(0)).any():
-            warnings.warn(f"SAS variable positions don't match order and length")
+        # BUG: Pandas Series.cumsum() seems to fail on its new Int type;
+        #      thus we have a redundant conversion to Int64Dtype.
+        df['Position'] = df['Length'].cumsum().astype(pd.Int64Dtype())
+        df['Length'] = df['Length'].fillna(pd.NA).astype(pd.Int64Dtype())
+        df.loc[1, 'Position'] = 0
         return df
 
     def infos(self):
@@ -552,166 +507,36 @@ class Dataset(pd.DataFrame):
         buf.seek(0)
         return buf.read()
 
-    @property
-    def sas_name(self):
-        """
-        Dataset name.
-        """
-        return getattr(self, '_sas_name', '')
-
-    @sas_name.setter
-    def sas_name(self, value):
-        bytestring = value.encode('ascii')
-        if len(bytestring) > 8:
-            raise ValueError(f'ASCII-encoded name {bytestring} longer than 8 characters')
-        self._sas_name = value
-
-    @property
-    def sas_label(self):
-        """
-        Dataset label.
-        """
-        return self._sas_label
-
-    @sas_label.setter
-    def sas_label(self, value):
-        bytestring = value.encode('ascii')
-        if len(bytestring) > 40:
-            raise ValueError(f'ASCII-encoded label {bytestring} longer than 40 characters')
-        self._sas_label = value
-
-    @property
-    def sas_dataset_type(self):
-        """
-        Dataset type.
-        """
-        return getattr(self, '_sas_dataset_type', '')
-
-    @sas_dataset_type.setter
-    def sas_dataset_type(self, value):
-        bytestring = value.encode('ascii')
-        if len(bytestring) > 8:
-            raise ValueError(f'ASCII-encoded type {bytestring} longer than 8 characters')
-        self._sas_dataset_type = value
-
-    @property
-    def sas_dataset_created(self):
-        """
-        Dataset created.
-        """
-        return getattr(self, '_sas_dataset_created', datetime.now())
-
-    @sas_dataset_created.setter
-    def sas_dataset_created(self, value):
-        if not isinstance(value, datetime):
-            raise TypeError(f'Expected datetime, not {type(value).__name__}')
-        if not (datetime(1900, 1, 1) < value < datetime(2100, 1, 1)):
-            raise ValueError('Datetime must be in 1900s or 2000s')
-        self._sas_dataset_created = value
-
-    @property
-    def sas_dataset_modified(self):
-        """
-        Dataset modified.
-        """
-        return getattr(self, '_sas_dataset_modified', datetime.now())
-
-    @sas_dataset_modified.setter
-    def sas_dataset_modified(self, value):
-        if not isinstance(value, datetime):
-            raise TypeError(f'Expected datetime, not {type(value).__name__}')
-        if not (datetime(1900, 1, 1) < value < datetime(2100, 1, 1)):
-            raise ValueError('Datetime must be in 1900s or 2000s')
-        self._sas_dataset_modified = value
-
-    @property
-    def sas_os(self):
-        """
-        OS used to create the dataset.
-        """
-        return getattr(self, '_sas_os', '')
-
-    @sas_os.setter
-    def sas_os(self, value):
-        bytestring = value.encode('ascii')
-        if len(bytestring) > 8:
-            raise ValueError(f'ASCII-encoded OS name {bytestring} longer than 8 characters')
-        self._sas_os = value
-
-    @property
-    def sas_version(self):
-        """
-        SAS version used to create the dataset.
-        """
-        return getattr(self, '_sas_version', '')
-
-    @sas_version.setter
-    def sas_version(self, value):
-        bytestring = value.encode('ascii')
-        if len(bytestring) > 8:
-            raise ValueError(f'ASCII-encoded SAS version {bytestring} longer than 8 characters')
-        self._sas_version = value
-
 
 class Library(MutableMapping):
     """
     Collection of datasets from a SAS file.
     """
 
-    def __init__(self, members=(), created=None, modified=None, os='', version=''):
+    def __init__(self, members=(), created=None, modified=None, sas_os='', sas_version=''):
         """
         Initialize a SAS data library.
         """
+        self.created = created
+        self.modified = modified
+        self.sas_os = sas_os
+        self.sas_version = sas_version
+
         self._members = {}
-        if isinstance(members, Mapping):
+        if isinstance(members, Library):
+            self._members = members._members
+            self.created = members.created
+            self.modified = members.modified
+            self.sas_os = members.sas_os
+            self.sas_version = members.sas_version
+        elif isinstance(members, Mapping):
             for name, dataset in members.items():
                 self[name] = dataset  # Use __setitem__ to validate metadata.
         else:
             for dataset in members:
-                if dataset.sas_name in self:
-                    warnings.warn(f'More than one dataset named {dataset.sas_name!r}')
-                self[dataset.sas_name] = dataset
-
-        if created is None:
-            self.created = datetime.now()
-        else:
-            self.created = created
-
-        if modified is None:
-            self.modified = self.created
-        else:
-            self.modified = modified
-
-        self.os = os
-        self.version = version
-
-    @property
-    def version(self):
-        """
-        SAS version used to create the dataset library.
-        """
-        return self._version
-
-    @version.setter
-    def version(self, value):
-        bytestring = value.encode('ascii')
-        if len(bytestring) > 8:
-            raise ValueError('ASCII-encoded {bytestring} longer than 8 characters')
-        self._version = value
-
-    @property
-    def os(self):
-        """
-        Operating system used to create the dataset library.
-        """
-        return self._os
-
-    @os.setter
-    def os(self, value):
-        bytestring = value.encode('ascii')
-        if len(bytestring) > 8:
-            raise ValueError('ASCII-encoded {bytestring} longer than 8 characters')
-        self._os = value
+                if dataset.name in self:
+                    warnings.warn(f'More than one dataset named {dataset.name!r}')
+                self[dataset.name] = dataset
 
     def __repr__(self):
         """
@@ -730,12 +555,13 @@ class Library(MutableMapping):
         """
         Insert or update a member in the library.
         """
-        if dataset.sas_name is None:
-            dataset.sas_name = name
-            LOG.debug(f'Set dataset SAS name to {name!r}')
-        elif name != dataset.sas_name:
-            msg = 'Library member name {a} must match dataset SAS name {b}'
-            raise ValueError(msg.format(a=name, b=dataset.sas_name))
+        if not isinstance(dataset, Dataset):
+            dataset = Dataset(dataset, name=name)
+        elif dataset.name is None and name is not None:
+            dataset.name = name
+            warnings.warn(f'Set dataset name to {name!r}')
+        elif name != dataset.name:
+            raise ValueError(f'Library member name {name} must match dataset name {dataset.name}')
         self._members[name] = dataset
 
     def __delitem__(self, name):
@@ -765,9 +591,24 @@ class Library(MutableMapping):
         return same_keys and same_values
 
 
-def from_columns():
+def from_columns(mapping, f):
     """
 
     """
-    warnings.warn('', DeprecationWarning)
-    # Gotta stay backwards compatible.  The FDA has written docs.
+    # Avoid circular import problems.
+    import xport.v56
+    warnings.warn('Please use ``xport.v56.dump`` in the future', DeprecationWarning)
+    library = xport.v56.Library([xport.v56.Member(mapping)])
+    f.write(bytes(library))
+
+
+def from_rows(iterable, f):
+    """
+
+    """
+    # Avoid circular import problems.
+    import xport.v56
+    warnings.warn('Please use ``xport.v56.dump`` in the future', DeprecationWarning)
+    df = pd.DataFrame(iterable)
+    library = xport.v56.Library([xport.v56.Member(df)])
+    f.write(bytes(library))

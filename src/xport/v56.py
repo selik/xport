@@ -10,14 +10,13 @@ The SAS V5 Transport File format, also called XPORT, or simply XPT, ...
 # Floating point data are IBM-style double format.
 
 # Standard Library
-import itertools
-import json
 import logging
 import math
 import re
 import struct
 import warnings
-from collections.abc import Mapping
+from collections import namedtuple
+from collections.abc import Iterator, Mapping
 from datetime import datetime
 
 # Community Packages
@@ -42,6 +41,640 @@ class Overflow(ArithmeticError):
 
 class Underflow(ArithmeticError):
     """Number too small to express, rounds to zero."""
+
+
+class Namestr:
+    """
+    Variable metadata from a SAS Version 5 or 6 Transport (XPORT) file.
+    """
+
+    # Here is the C structure definition for the namestr record:
+    #
+    # struct NAMESTR {
+    #    short ntype;       /* VARIABLE TYPE: 1=NUMERIC, 2=CHAR       */
+    #    short nhfun;       /* HASH OF NNAME (always 0)               */
+    #    short nlng;        /* LENGTH OF VARIABLE IN OBSERVATION      */
+    #    short nvar0;       /* VARNUM                                 */
+    #    char8 nname;       /* NAME OF VARIABLE                       */
+    #    char40 nlabel;     /* LABEL OF VARIABLE                      */
+    #    char8 nform;       /* NAME OF FORMAT                         */
+    #    short nfl;          /* FORMAT FIELD LENGTH OR 0               */
+    #    short nfd;         /* FORMAT NUMBER OF DECIMALS              */
+    #    short nfj;         /* 0=LEFT JUSTIFICATION, 1=RIGHT JUST     */
+    #    char nfill[2];      /* (UNUSED, FOR ALIGNMENT AND FUTURE)     */
+    #    char8 niform;      /* NAME OF INPUT FORMAT                   */
+    #    short nifl;         /* INFORMAT LENGTH ATTRIBUTE              */
+    #    short nifd;        /* INFORMAT NUMBER OF DECIMALS            */
+    #    long npos;         /* POSITION OF VALUE IN OBSERVATION       */
+    #    char rest[52];     /* remaining fields are irrelevant         */
+    #    };
+    #
+    # Note that the length given in the last 4 bytes of the member
+    # header record indicates the actual number of bytes for the NAMESTR
+    # structure. The size of the structure listed above is 140 bytes.
+    # Under VAX/VMS, the size will be 136 bytes, meaning that the 'rest'
+    # variable may be truncated.
+
+    fmts = {
+        140: '>hhhh8s40s8shhh2s8shhl52s',
+        136: '>hhhh8s40s8shhh2s8shhl48s',
+    }
+
+    def __init__(self, vtype, length, number, name, label, format, informat, position):
+        """
+        Initialize a ``Namestr``.
+        """
+        self.vtype = vtype
+        self.length = length
+        self.number = number
+        self.name = name
+        self.label = label
+        self.format = format
+        self.informat = informat
+        self.position = position
+
+    def __eq__(self, other):
+        """Equality."""
+        attributes = [
+            'vtype',
+            'name',
+            'label',
+            'format',
+            'informat',
+            'position',
+        ]
+        return all(getattr(self, name) == getattr(other, name) for name in attributes)
+
+    @classmethod
+    def from_variable(cls, variable: xport.Variable, number=None, position=None):
+        """
+        Construct a ``Namestr`` from an ``xport.Variable``.
+        """
+        if variable.vtype is not None:
+            vtype = variable.vtype
+        elif variable.dtype.kind in {'f', 'i'}:
+            vtype = xport.VariableType.NUMERIC
+        elif variable.dtype.kind == 'O':
+            vtype = xport.VariableType.CHARACTER
+        elif variable.dtype.kind == 'b':
+            # We'll encode Boolean columns as 1 if True else 0.
+            vtype = xport.VariableType.NUMERIC
+        else:
+            raise TypeError(f'{type(variable).__name__}.dtype {variable.dtype} not supported')
+
+        if variable.width is not None:
+            length = variable.width
+        elif vtype == xport.VariableType.NUMERIC:
+            length = 8
+        else:
+            length = variable.str.len().max()
+        return cls(
+            vtype=vtype,
+            length=length,
+            number=number,
+            name=variable.name,
+            label=variable.label,
+            format=variable.format if variable.format is not None else xport.Format(),
+            informat=variable.informat if variable.informat is not None else xport.Informat(),
+            position=position,
+        )
+
+    @classmethod
+    def from_bytes(cls, bytestring: bytes):
+        """
+        Construct a ``Namestr`` from an XPORT-format byte string.
+        """
+        # dtype='float' if vtype == xport.VariableType.NUMERIC else 'string'
+        size = len(bytestring)
+        if size == 136:
+            warnings.warn('File written on VAX/VMS, module behavior not tested')
+        fmt = cls.fmts[size]
+        tokens = struct.unpack(fmt, bytestring)
+        return cls(
+            vtype=xport.VariableType(tokens[0]),
+            length=tokens[2],
+            number=tokens[3],
+            name=tokens[4].strip(b'\x00').decode('ascii').rstrip(),
+            label=tokens[5].strip(b'\x00').decode('ascii').rstrip(),
+            format=xport.Format.from_struct_tokens(*tokens[6:10]),
+            informat=xport.Informat.from_struct_tokens(*tokens[11:14]),
+            position=tokens[14],
+        )
+
+    def __bytes__(self):
+        """
+        Encode in XPORT-format.
+        """
+        fmt = self.fmts[140]
+        format_name = self.format.name.encode('ascii')
+        if len(format_name) > 8:
+            raise ValueError(f'ASCII-encoded format name {format_name} longer than 8 characters')
+        informat_name = self.informat.name.encode('ascii')
+        if len(informat_name) > 8:
+            raise ValueError(f'ASCII-encoded format name {informat_name} longer than 8 characters')
+        return struct.pack(
+            fmt,
+            self.vtype,
+            0,  # "Hash" of name, always 0.
+            self.length,
+            self.number,
+            text_encode(self, 'name', 8),
+            text_encode(self, 'label', 40),
+            format_name.ljust(8),
+            self.format.length,
+            self.format.decimals,
+            self.format.justify,
+            b'',  # Unused
+            informat_name.ljust(8),
+            self.informat.length,
+            self.informat.decimals,
+            self.position,
+            b'',  # Padding
+        )
+
+
+class MemberHeader(Mapping):
+    """
+    Dataset metadata from a SAS Version 5 or 6 Transport (XPORT) file.
+    """
+
+    # 4. Member header records
+    #    Both of these records occur for every member in the file.
+    #
+    #    HEADER RECORD*******MEMBER HEADER RECORD!!!!!!!
+    #    000000000000000001600000000140
+    #    HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!
+    #    000000000000000000000000000000
+    #
+    #    Note the 0140 that appears in the member header record above.
+    #    This value specifies the size of the variable descriptor
+    #    (NAMESTR) record that is described later in this document. On
+    #    the VAX/VMS operating system, the value will be 0136 instead of
+    #    0140. This means that the descriptor will be only 136 bytes
+    #    instead of 140.
+    #
+    # 5. Member header data ... as C structure:
+    #
+    #       struct REAL_HEADER {
+    #          char sas_symbol[8];      /* "SAS"                    */
+    #          char sas_dsname[8];      /* dataset name             */
+    #          char sasdata[8];         /* "SASDATA"                */
+    #          char sasver[8];          /* version of SAS used      */
+    #          char sas_osname[8];      /* operating system used    */
+    #          char blanks[24];
+    #          char sas_create[16];     /* datetime created         */
+    #          };
+    #
+    #    The second header record as C structure:
+    #
+    #       struct SECOND_HEADER {
+    #          char dtmod[16];            /* date modified           */
+    #          char padding[16];
+    #          char dslabel[40];          /* dataset label          */
+    #          char dstype[8]             /* dataset type           */
+    #          };
+    #
+    # 6. Namestr header record
+    #    One for each member
+    #
+    #       HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!
+    #       000000xxxx0000000000000 0000000
+    #
+    #    In this header record, xxxx is the number of variables in the
+    #    data set, displayed with blank-padded numeric characters. For
+    #    example, for 2 variables, xxxx=0002.
+    #
+    # 7. Namestr records
+    #    Each namestr field is 140 bytes long, but the fields are
+    #    streamed together and broken in 80-byte pieces. If the last
+    #    byte of the last namestr field does not fall in the last byte
+    #    of the 80-byte record, the record is padded with ASCII blanks
+    #    to 80 bytes.
+    #
+    # 8. Observation header
+    #
+    #       HEADER RECORD*******OBS HEADER RECORD!!!!!!!
+    #       000000000000000000000000 000000
+
+    pattern = re.compile(
+        # Header line 1
+        rb'HEADER RECORD\*{7}MEMBER  HEADER RECORD\!{7}0{17}'
+        rb'160{8}(?P<descriptor_size>140|136)  '
+        # Header line 2
+        rb'HEADER RECORD\*{7}DSCRPTR HEADER RECORD\!{7}0{30} {2}'
+        # Header line 3
+        rb'SAS {5}(?P<name>.{8})SASDATA '
+        rb'(?P<version>.{8})(?P<os>.{8}) {24}(?P<created>.{16})'
+        # Header line 4
+        rb'(?P<modified>.{16}) {16}'
+        rb'(?P<label>.{40})(?P<type>    DATA|    VIEW| {8})'
+        # Namestrs
+        rb'HEADER RECORD\*{7}NAMESTR HEADER RECORD\!{7}0{6}'
+        rb'(?P<n_variables>.{4})0{20} {2}'
+        rb'(?P<namestrs>.*?)'
+        rb'HEADER RECORD\*{7}OBS {5}HEADER RECORD\!{7}0{30} {2}',
+        # Observations ... until EOF or another Member.
+        re.DOTALL,
+    )
+
+    def __init__(
+        self,
+        name,
+        label,
+        dataset_type,
+        created,
+        modified,
+        sas_os,
+        sas_version,
+        namestrs=(),
+    ):
+        """
+        Initialize a ``MemberHeader``.
+        """
+        self.name = name
+        self.label = label
+        self.dataset_type = dataset_type
+        self.created = created
+        self.modified = modified
+        self.sas_os = sas_os
+        self.sas_version = sas_version
+        self.namestrs = {ns.name: ns for ns in namestrs}
+
+    def __repr__(self):
+        """REPL-format."""
+        metadata = (f'{k.title()}: {getattr(self, k)}' for k in xport.Dataset._metadata)
+        return f'<{type(self).__name__} {" ".join(metadata)}>'
+
+    def __getitem__(self, name):
+        """
+        Get a namestr by variable name.
+        """
+        return self.namestrs[name]
+
+    def __iter__(self):
+        """
+        Iterator of variable names.
+        """
+        return iter(self.namestrs)
+
+    def __len__(self):
+        """
+        Number of variables/namestrs.
+        """
+        return len(self.namestrs)
+
+    def __eq__(self, other):
+        """Equality."""
+        metadata = [
+            'name',
+            'label',
+            'dataset_type',
+            'created',
+            'modified',
+            'sas_os',
+            'sas_version',
+        ]
+        return super().__eq__(other) and all(
+            getattr(self, name) == getattr(other, name) for name in metadata
+        )
+
+    @classmethod
+    def from_dataset(cls, dataset: xport.Dataset):
+        """
+        Construct a ``MemberHeader`` from an ``xport.Dataset``.
+        """
+        namestrs = []
+        p = 0
+        for i, (k, v) in enumerate(dataset.items(), 1):
+            ns = Namestr.from_variable(v, number=i)
+            ns.position = p
+            p += ns.length
+            namestrs.append(ns)
+        return cls(
+            name=dataset.name,
+            label=dataset.label,
+            dataset_type=dataset.dataset_type,
+            created=dataset.created,
+            modified=dataset.modified,
+            sas_os=dataset.sas_os,
+            sas_version=dataset.sas_version,
+            namestrs=namestrs,
+        )
+
+    @classmethod
+    def from_bytes(cls, bytestring: bytes):
+        """
+        Construct a ``MemberHeader`` from an XPORT-format byte string.
+        """
+        mo = cls.pattern.search(bytestring)
+        if mo is None:
+            raise ValueError('No member header found')
+
+        def chunks():
+            stride = int(mo['descriptor_size'])
+            for i in range(0, len(mo['namestrs']), stride):
+                chunk = mo['namestrs'][i:i + stride]
+                if len(chunk) == stride:
+                    yield chunk
+
+        n = int(mo['n_variables'])
+        namestrs = [Namestr.from_bytes(b) for b in chunks()]
+        if len(namestrs) != n:
+            raise ValueError(f'Expected {n}, got {len(namestrs)}')
+        return cls(
+            name=mo['name'].strip(b'\x00').decode('ascii').strip(),
+            label=mo['label'].strip(b'\x00').decode('ascii').strip(),
+            dataset_type=mo['type'].strip(b'\x00').decode('ascii').strip(),
+            sas_os=mo['os'].strip(b'\x00').decode('ascii').strip(),
+            sas_version=mo['version'].strip().decode('ascii'),
+            created=strptime(mo['created']),
+            modified=strptime(mo['modified']),
+            namestrs=namestrs,
+        )
+
+    template = f'''\
+HEADER RECORD{'*' * 7}MEMBER  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
+HEADER RECORD{'*' * 7}DSCRPTR HEADER RECORD{'!' * 7}{'0' * 30}  \
+SAS     %(name)8bSASDATA %(version)8b%(os)8b{' ' * 24}%(created)16b\
+%(modified)16b{' ' * 16}%(label)40b%(type)8b\
+HEADER RECORD{'*' * 7}NAMESTR HEADER RECORD{'!' * 7}{'0' * 6}\
+%(n_variables)04d{'0' * 20}  \
+%(namestrs)b\
+HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
+'''.encode('ascii')
+
+    def __bytes__(self):
+        """
+        Encode in XPORT-format.
+        """
+        namestrs = b''.join(bytes(ns) for ns in self.values())
+        if len(namestrs) % 80:
+            namestrs += b' ' * (80 - len(namestrs) % 80)
+        return self.template % {
+            b'name': text_encode(self, 'name', 8),
+            b'label': text_encode(self, 'label', 40),
+            b'type': text_encode(self, 'dataset_type', 8),
+            b'n_variables': len(self),
+            b'os': text_encode(self, 'sas_os', 8),
+            b'version': text_encode(self, 'sas_version', 8),
+            b'created': strftime(self.created if self.created else datetime.now()),
+            b'modified': strftime(self.modified if self.modified else datetime.now()),
+            b'namestrs': namestrs,
+        }
+
+
+class Observations(Iterator):
+    """
+    Data from a SAS Version 5 or 6 Transport (XPORT) file.
+
+    ``Observations`` is an iterator, yielding observations as tuples.
+    """
+
+    # 9. Data records
+    #    Data records are streamed in the same way that namestrs are.
+    #    There is ASCII blank padding at the end of the last record if
+    #    necessary. There is no special trailing record.
+
+    def __init__(self, observations, header=None):
+        """
+        Initialize from an iterable of observations.
+        """
+        self.it = iter(observations)
+        self.header = header
+
+    def __next__(self):
+        """
+        Get the next item from the iterator.
+        """
+        return next(self.it)
+
+    @classmethod
+    def from_dataset(cls, dataset):
+        """
+        Yield observations from an ``xport.Dataset``.
+        """
+        return cls(
+            observations=dataset.itertuples(index=False, name='Observation'),
+            header=MemberHeader.from_dataset(dataset),
+        )
+
+    @classmethod
+    def from_bytes(cls, bytestring, header):
+        """
+        Yield observations from an XPORT-format byte string.
+        """
+        Observation = namedtuple('Observation', list(header))
+
+        def character_decode(s):
+            return s.strip(b'\x00').decode('ascii').rstrip()
+
+        converters = []
+        for namestr in header.values():
+            if namestr.vtype == xport.VariableType.NUMERIC:
+                converters.append(ibm_to_ieee)
+            else:
+                converters.append(character_decode)
+
+        def iterator():
+            sizes = [namestr.length for namestr in header.values()]
+            fmt = ''.join(f'{x}s' for x in sizes)
+            stride = sum(sizes)
+            if stride == 0:
+                return
+            sentinel = b' ' * stride
+            mview = memoryview(bytestring)
+            for i in range(0, len(mview), stride):
+                chunk = mview[i:i + stride]
+                if len(chunk) != stride or chunk == sentinel:
+                    return
+                tokens = struct.unpack(fmt, chunk)
+                yield Observation._make(f(v) for f, v in zip(converters, tokens))
+
+        return cls(iterator(), header)
+
+    def to_bytes(self):
+        """
+        Iterator of XPORT-encoded observations.
+        """
+        fmt = ''.join(f'{namestr.length}s' for namestr in self.header.values())
+        converters = []
+        for namestr in self.header.values():
+            if namestr.vtype == xport.VariableType.NUMERIC:
+                converters.append(ieee_to_ibm)
+            else:
+                converters.append(lambda s: s.encode('ascii').ljust(namestr.length))
+        for t in self:
+            g = (f(v) for f, v in zip(converters, t))
+            yield struct.pack(fmt, *g)
+
+    def __bytes__(self):
+        """
+        Encode in XPORT-format.
+        """
+        observations = b''.join(self.to_bytes())
+        if len(observations) % 80:
+            observations += b' ' * (80 - len(observations) % 80)
+        return observations
+
+
+class Member(xport.Dataset):
+    """
+    Dataset from a SAS Version 5 or 6 Transport (XPORT) file.
+    """
+
+    @classmethod
+    def from_header(cls, header):
+        """
+        Create an empty ``Member`` with metadata from a ``MemberHeader``.
+        """
+        public = (name.lstrip('_') for name in cls._metadata)
+        kwds = {name: getattr(header, name) for name in public}
+        self = cls(**kwds)
+        for namestr in header.values():
+            self[namestr.name] = xport.Variable(
+                dtype='float' if namestr.vtype == xport.VariableType.NUMERIC else 'string',
+                name=namestr.name,
+                label=namestr.label,
+                vtype=namestr.vtype,
+                width=namestr.length,
+                format=namestr.format,
+                informat=namestr.informat,
+            )
+        return self
+
+    @classmethod
+    def from_bytes(cls, bytestring, pattern=MemberHeader.pattern):
+        """
+        Decode the first ``Member`` from an XPORT-format byte string.
+        """
+        mview = memoryview(bytestring)
+        matches = pattern.finditer(mview)
+
+        try:
+            mo = next(matches)
+        except StopIteration:
+            raise ValueError('No member header found')
+        i = mo.end(0)
+
+        try:
+            mo = next(matches)
+        except StopIteration:
+            j = None
+        else:
+            j = mo.start(0)
+
+        header = xport.v56.MemberHeader.from_bytes(mview[:i])
+        observations = xport.v56.Observations.from_bytes(mview[i:j], header)
+
+        # This awkwardness works around Pandas subclasses misbehaving.
+        # ``DataFrame.append`` discards subclass attributes.  Lame.
+        head = cls.from_header(header)
+        data = Member(pd.DataFrame.from_records(observations, columns=list(header)))
+        data.copy_metadata(head)
+        return data
+
+    def __bytes__(self):
+        """
+        Encode in XPORT-format.
+        """
+        header = bytes(MemberHeader.from_dataset(self))
+        observations = bytes(Observations.from_dataset(self))
+        return header + observations
+
+
+class Library(xport.Library):
+    """
+    Collection of datasets from a SAS Version 5 or 6 Transport file.
+    """
+
+    # 1. The first header record:
+    #
+    #   HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!
+    #   000000000000000000000000000000
+    #
+    # 2. The first real header record ... as a C structure:
+    #
+    #   struct REAL_HEADER {
+    #      char sas_symbol[2][8];       /* "SAS", twice             */
+    #      char saslib[8];              /* "SASLIB"                 */
+    #      char sasver[8];              /* version of SAS used      */
+    #      char sas_os[8];              /* operating system used    */
+    #      char blanks[24];
+    #      char sas_create[16];         /* datetime created         */
+    #      };
+    #
+    # 3. Second real header record
+    #
+    #       ddMMMyy:hh:mm:ss
+    #
+    #    In this record, the string is the datetime modified. Most
+    #    often, the datetime created and datetime modified will always
+    #    be the same. Pad with ASCII blanks to 80 bytes. Note that only
+    #    a 2-digit year appears. If any program needs to read in this
+    #    2-digit year, be prepared to deal with dates in the 1900s or
+    #    the 2000s.
+
+    pattern = re.compile(
+        rb'HEADER RECORD\*{7}LIBRARY HEADER RECORD\!{7}0{30} {2}'
+        rb'SAS {5}SAS {5}SASLIB {2}'
+        rb'(?P<version>.{8})(?P<os>.{8}) {24}(?P<created>.{16})'
+        rb'(?P<modified>.{16}) {64}'
+        rb'(?P<members>.*)',
+        re.DOTALL,
+    )
+
+    @classmethod
+    def from_bytes(cls, bytestring, member_header_re=MemberHeader.pattern):
+        """
+        Parse a SAS XPORT document from a byte string.
+        """
+        mview = memoryview(bytestring)
+        mo = cls.pattern.match(mview)
+        if mo is None:
+            lines = [mview[i * 80:(i + 1) * 80] for i in range(8)]
+            LOG.error(f'Document begins with' + '\n%s' * len(lines), *lines)
+            raise ValueError('Document does not match SAS Version 5 or 6 Transport (XPORT) format')
+
+        matches = member_header_re.finditer(mview)
+        indices = [m.start(0) for m in matches] + [None]
+        chunks = (mview[i:j] for i, j in zip(indices, indices[1:]))
+        return Library(
+            members=map(Member.from_bytes, chunks),
+            created=strptime(mo['created']),
+            modified=strptime(mo['modified']),
+            sas_os=mo['os'].strip(b'\x00').decode('ascii').strip(),
+            sas_version=mo['version'].strip(b'\x00').decode('ascii').strip(),
+        )
+
+    template = f'''\
+HEADER RECORD{'*' * 7}LIBRARY HEADER RECORD{'!' * 7}{'0' * 30}  \
+SAS     SAS     SASLIB  \
+%(version)8b%(os)8b{' ' * 24}%(created)16b\
+%(modified)16b{' ' * 64}\
+%(members)b\
+'''.encode('ascii')
+
+    def __bytes__(self):
+        """
+        XPORT-format bytes string.
+        """
+        return self.template % {
+            b'version': text_encode(self, 'sas_version', 8),
+            b'os': text_encode(self, 'sas_os', 8),
+            b'created': strftime(self.created if self.created else datetime.now()),
+            b'modified': strftime(self.modified if self.modified else datetime.now()),
+            b'members': b''.join(bytes(Member(member)) for member in self.values()),
+        }
+
+
+def text_encode(obj, name, n):
+    value = getattr(obj, name)
+    if value is None:
+        value = ''
+    bytestring = value.encode('ascii').ljust(n)
+    if len(bytestring) > n:
+        raise ValueError(f'ASCII-encoded {name} {bytestring} longer than {n} characters')
+    return bytestring
 
 
 def strptime(timestring):
@@ -188,431 +821,6 @@ def ieee_to_ibm(ieee):
     return struct.pack('>Q', sign | exponent | mantissa)
 
 
-class Namestr(xport.Variable):
-    """
-    Variable metadata from a SAS Version 5 or 6 Transport (XPORT) file.
-    """
-
-    # Here is the C structure definition for the namestr record:
-    #
-    # struct NAMESTR {
-    #    short ntype;       /* VARIABLE TYPE: 1=NUMERIC, 2=CHAR       */
-    #    short nhfun;       /* HASH OF NNAME (always 0)               */
-    #    short nlng;        /* LENGTH OF VARIABLE IN OBSERVATION      */
-    #    short nvar0;       /* VARNUM                                 */
-    #    char8 nname;       /* NAME OF VARIABLE                       */
-    #    char40 nlabel;     /* LABEL OF VARIABLE                      */
-    #    char8 nform;       /* NAME OF FORMAT                         */
-    #    short nfl;         /* FORMAT FIELD LENGTH OR 0               */
-    #    short nfd;         /* FORMAT NUMBER OF DECIMALS              */
-    #    short nfj;         /* 0=LEFT JUSTIFICATION, 1=RIGHT JUST     */
-    #    char nfill[2];     /* (UNUSED, FOR ALIGNMENT AND FUTURE)     */
-    #    char8 niform;      /* NAME OF INPUT FORMAT                   */
-    #    short nifl;        /* INFORMAT LENGTH ATTRIBUTE              */
-    #    short nifd;        /* INFORMAT NUMBER OF DECIMALS            */
-    #    long npos;         /* POSITION OF VALUE IN OBSERVATION       */
-    #    char rest[52];     /* remaining fields are irrelevant        */
-    #    };
-    #
-    # Note that the length given in the last 4 bytes of the member
-    # header record indicates the actual number of bytes for the NAMESTR
-    # structure. The size of the structure listed above is 140 bytes.
-    # Under VAX/VMS, the size will be 136 bytes, meaning that the 'rest'
-    # variable may be truncated.
-
-    fmts = {
-        140: '>hhhh8s40s8shhh2s8shhl52s',
-        136: '>hhhh8s40s8shhh2s8shhl48s',
-    }
-
-    @classmethod
-    def unpack(cls, bytestring):
-        """
-        Parse a namestr from a byte string.
-        """
-        # LOG.debug(f'Unpacking namestr from {bytestring}')
-        size = len(bytestring)
-        if size == 136:
-            warnings.warn('File written on VAX/VMS, module behavior not tested')
-        fmt = cls.fmts[size]
-        tokens = struct.unpack(fmt, bytestring)
-        vtype = xport.VariableType(tokens[0])
-        v = cls(
-            name=tokens[4].strip(b'\x00').decode('ascii').rstrip(),
-            dtype='float' if vtype == xport.VariableType.NUMERIC else 'string',
-        )
-        v.sas_label = tokens[5].strip(b'\x00').decode('ascii').rstrip()
-        v._sas_format = xport.Format.from_struct_tokens(*tokens[6:10])
-        v._sas_iformat = xport.Informat.from_struct_tokens(*tokens[11:14])
-        v.sas_variable_number = tokens[3]
-        v.sas_variable_position = tokens[14]
-        v.sas_variable_length = tokens[2]
-        LOG.debug(f'Parsed namestr {v}')
-        return v
-
-    def __bytes__(self):
-        """
-        XPORT-format bytes string.
-        """
-        fmt = self.fmts[140]
-        name = self.sas_name.encode('ascii')
-        if len(name) > 8:
-            raise ValueError('Name {name} longer than 8 characters')
-        label = self.sas_label.encode('ascii')
-        if len(label) > 40:
-            raise ValueError(f'Label {label} longer than 40 characters')
-        return struct.pack(
-            fmt,
-            self.sas_variable_type,
-            0,  # "Hash" of name, always 0.
-            self.sas_variable_length,
-            self.sas_variable_number,
-            name.ljust(8),
-            label.ljust(40),
-            self.sas_format.name.encode('ascii').ljust(8),
-            self.sas_format.length,
-            self.sas_format.decimals,
-            self.sas_format.justify,
-            b'',  # Unused
-            self.sas_iformat.name.encode('ascii').ljust(8),
-            self.sas_iformat.length,
-            self.sas_iformat.decimals,
-            self.sas_variable_position,
-            b'',  # Padding
-        )
-
-
-class Member(xport.Dataset):
-    """
-    SAS library member from a SAS Version 5 or 6 Transport file.
-    """
-
-    # 4. Member header records
-    #    Both of these records occur for every member in the file.
-    #
-    #    HEADER RECORD*******MEMBER HEADER RECORD!!!!!!!
-    #    000000000000000001600000000140
-    #    HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!
-    #    000000000000000000000000000000
-    #
-    #    Note the 0140 that appears in the member header record above.
-    #    This value specifies the size of the variable descriptor
-    #    (NAMESTR) record that is described later in this document. On
-    #    the VAX/VMS operating system, the value will be 0136 instead of
-    #    0140. This means that the descriptor will be only 136 bytes
-    #    instead of 140.
-    #
-    # 5. Member header data ... as C structure:
-    #
-    #       struct REAL_HEADER {
-    #          char sas_symbol[8];      /* "SAS"                    */
-    #          char sas_dsname[8];      /* dataset name             */
-    #          char sasdata[8];         /* "SASDATA"                */
-    #          char sasver[8];          /* version of SAS used      */
-    #          char sas_osname[8];      /* operating system used    */
-    #          char blanks[24];
-    #          char sas_create[16];     /* datetime created         */
-    #          };
-    #
-    #    The second header record as C structure:
-    #
-    #       struct SECOND_HEADER {
-    #          char dtmod[16];            /* date modified           */
-    #          char padding[16];
-    #          char dslabel[40];          /* dataset label          */
-    #          char dstype[8]             /* dataset type           */
-    #          };
-    #
-    # 6. Namestr header record
-    #    One for each member
-    #
-    #       HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!
-    #       000000xxxx0000000000000 0000000
-    #
-    #    In this header record, xxxx is the number of variables in the
-    #    data set, displayed with blank-padded numeric characters. For
-    #    example, for 2 variables, xxxx=0002.
-    #
-    # 7. Namestr records
-    #    Each namestr field is 140 bytes long, but the fields are
-    #    streamed together and broken in 80-byte pieces. If the last
-    #    byte of the last namestr field does not fall in the last byte
-    #    of the 80-byte record, the record is padded with ASCII blanks
-    #    to 80 bytes.
-    #
-    # 8. Observation header
-    #
-    #       HEADER RECORD*******OBS HEADER RECORD!!!!!!!
-    #       000000000000000000000000 000000
-
-    pattern = re.compile(
-        # Header line 1
-        rb'HEADER RECORD\*{7}MEMBER  HEADER RECORD\!{7}0{17}'
-        rb'160{8}(?P<descriptor_size>140|136)  '
-        # Header line 2
-        rb'HEADER RECORD\*{7}DSCRPTR HEADER RECORD\!{7}0{30} {2}'
-        # Header line 3
-        rb'SAS {5}(?P<name>.{8})SASDATA '
-        rb'(?P<version>.{8})(?P<os>.{8}) {24}(?P<created>.{16})'
-        # Header line 4
-        rb'(?P<modified>.{16}) {16}'
-        rb'(?P<label>.{40})(?P<type>    DATA|    VIEW| {8})'
-        # Namestrs
-        rb'HEADER RECORD\*{7}NAMESTR HEADER RECORD\!{7}0{6}'
-        rb'(?P<n_variables>.{4})0{20} {2}'
-        rb'(?P<namestrs>.*?)'
-        rb'HEADER RECORD\*{7}OBS {5}HEADER RECORD\!{7}0{30} {2}',
-        # Observations ... until EOF or another Member.
-        re.DOTALL,
-    )
-
-    # 9. Data records
-    #    Data records are streamed in the same way that namestrs are.
-    #    There is ASCII blank padding at the end of the last record if
-    #    necessary. There is no special trailing record.
-
-    decoders = {
-        xport.VariableType.NUMERIC: ibm_to_ieee,
-        xport.VariableType.CHARACTER: lambda s: s.strip(b'\x00').decode('ascii').rstrip()
-    }
-
-    @classmethod
-    def finditer(cls, bytestring):
-        """
-        Parse SAS library members from a byte string.
-        """
-        LOG.debug('Searching for library members ...')
-        matches = list(cls.pattern.finditer(bytestring))
-
-        if not matches:
-            warnings.warn('No library members found')
-            lines = [bytestring[i * 80:(i + 1) * 80] for i in range(6)]
-            LOG.debug(f'Byte string begins with' + '\n%s' * len(lines), *lines)
-            return
-
-        headers = []
-        for mo in matches:
-            variables = []
-            LOG.info(f'Found library member {mo["name"]!r}')
-            stride = int(mo['descriptor_size'])
-            for i in range(0, len(mo['namestrs']), stride):
-                b = mo['namestrs'][i:i + stride]
-                if len(b) == stride:
-                    variables.append(Namestr.unpack(b))
-            if len(variables) != int(mo['n_variables']):
-                raise ValueError(f'Expected {mo["n_variables"]}, got {len(variables)}')
-            data = {v.sas_name: v for v in sorted(variables, key=lambda v: v.sas_variable_number)}
-            h = cls(data)
-            h.sas_name = mo['name'].strip(b'\x00').decode('ascii').strip()
-            h.sas_label = mo['label'].strip(b'\x00').decode('ascii').strip()
-            h.sas_dataset_type = mo['type'].strip(b'\x00').decode('ascii').strip()
-            h.sas_os = mo['os'].strip(b'\x00').decode('ascii').strip()
-            h.sas_version = mo['version'].strip().decode('ascii')
-            h.sas_dataset_created = strptime(mo['created'])
-            h.sas_dataset_modified = strptime(mo['modified'])
-            LOG.debug(f'Parsed member header {h.sas_name} with {len(variables)} variables')
-            headers.append(h)
-
-        mview = memoryview(bytestring)
-        ends = [mo.end(0) for mo in matches]
-        starts = [mo.start(0) for mo in matches]
-        chunks = (mview[i:j] for i, j in zip(ends, starts[1:] + [None]))
-        for h, chunk in zip(headers, chunks):
-            yield h
-
-    template = f'''\
-HEADER RECORD{'*' * 7}MEMBER  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
-HEADER RECORD{'*' * 7}DSCRPTR HEADER RECORD{'!' * 7}{'0' * 30}  \
-SAS     %(name)8bSASDATA %(version)8b%(os)8b{' ' * 24}%(created)16b\
-%(modified)16b{' ' * 16}%(label)40b%(type)8b\
-HEADER RECORD{'*' * 7}NAMESTR HEADER RECORD{'!' * 7}{'0' * 6}\
-%(n_variables)04d{'0' * 20}  \
-%(namestrs)b\
-HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
-%(observations)b\
-'''.encode('ascii')
-
-    def encoder(self):
-        """
-        Make an observation encoder.
-        """
-        # Try to avoid keeping a reference to a Variable in the closure.
-        variables = [v for k, v in self.items()]
-        sizes = [v.sas_variable_length for v in variables]
-        vtypes = [v.sas_variable_type for v in variables]
-        fmt = ''.join(f'{x}s' for x in sizes)
-        converters = []
-        for vtype, x in zip(vtypes, sizes):
-            if vtype == xport.VariableType.NUMERIC:
-                converters.append(ieee_to_ibm)
-            else:
-                converters.append(lambda s: s.encode('ascii').ljust(x))
-
-        def bytes_(t):
-            """Convert an observation (tuple) to a byte string."""
-            g = (f(v) for f, v in zip(converters, t))
-            return struct.pack(fmt, *g)
-
-        return bytes_
-
-    def __bytes__(self):
-        """
-        XPORT-format bytes string.
-        """
-        self.update_variable_number_and_position()
-
-        namestrs = b''.join(bytes(xport.v56.Namestr(v)) for k, v in self.items())
-        if len(namestrs) % 80:
-            namestrs += b' ' * (80 - len(namestrs) % 80)
-
-        observations = self.itertuples(index=False, name=None)
-        observations = b''.join(self.encoder()(t) for t in observations)
-        if len(observations) % 80:
-            observations += b' ' * (80 - len(observations) % 80)
-
-        return self.template % {
-            b'name': self.sas_name.encode('ascii')[:8].ljust(8),
-            b'label': self.sas_label.encode('ascii')[:40].ljust(40),
-            b'type': self.sas_dataset_type.encode('ascii')[:8].ljust(8),
-            b'n_variables': len(self.columns),
-            b'os': self.sas_os.encode('ascii')[:8].ljust(8),
-            b'version': self.sas_version.encode('ascii')[:8].ljust(8),
-            b'created': strftime(self.sas_dataset_created),
-            b'modified': strftime(self.sas_dataset_modified),
-            b'namestrs': namestrs,
-            b'observations': observations,
-        }
-
-        # df = self.data
-        # variables = [df[k].sas for k in df]
-        # names = [v.name for v in variables]
-        # parsers = [self.decoders[v.type] for v in variables]
-        # sizes = [v.length for v in variables]
-        # fmt = ''.join(f'{x}s' for x in sizes)
-        # stride = sum(sizes)
-        # LOG.info(f'Observation struct fmt {fmt}')
-
-        # if stride == 0:
-        #     return
-        # sentinel = b' ' * stride
-        # for i in range(0, len(mview), stride):
-        #     chunk = mview[i:i + stride]
-        #     LOG.debug(f'Parsing observation from {bytes(chunk)}')
-        #     if len(chunk) != stride or chunk == sentinel:
-        #         LOG.debug(f'End padding {chunk}')
-        #         break
-        #     tokens = struct.unpack(fmt, chunk)
-        #     obs = {n: f(b) for n, f, b in zip(names, parsers, tokens)}
-        #     LOG.debug(f'Parsed observation {json.dumps(obs, indent=2)}')
-        #     yield obs
-
-        # for h, chunk in zip(headers, chunks):
-        #     rows = pd.DataFrame(h.parse_observations(chunk))
-        #     h.data = pd.concat([h.data, rows])
-        #     # BUG: Argh! Every time we change columns, we lose the series accessors.
-        #     h.data.sas = h
-        #     LOG.info('Parsed dataframe for %s\n%s', h.name, h.info())
-        #     yield h
-
-    # def __bytes__(self):
-    #     """
-    #     XPORT-format bytes string.
-    #     """
-    #     bytes_ = Observation.formatter(self.namestrs.values())
-    #     df = self.observations.copy()
-    #     for k, dtype in df.dtypes.iteritems():
-    #         if dtype == 'object':
-    #             df[k] = df[k].str.encode('ascii')
-    #         else:
-    #             df[k] = df[k].map(ieee_to_ibm)
-    #     observations = b''.join(bytes_(t) for t in df.itertuples(index=False, name=None))
-    #     if len(observations) % 80:
-    #         observations += b' ' * (80 - len(observations) % 80)
-
-
-class Library(xport.Library):
-    """
-    Collection of datasets from a SAS Version 5 or 6 Transport file.
-    """
-
-    # 1. The first header record:
-    #
-    #   HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!
-    #   000000000000000000000000000000
-    #
-    # 2. The first real header record ... as a C structure:
-    #
-    #   struct REAL_HEADER {
-    #      char sas_symbol[2][8];       /* "SAS", twice             */
-    #      char saslib[8];              /* "SASLIB"                 */
-    #      char sasver[8];              /* version of SAS used      */
-    #      char sas_os[8];              /* operating system used    */
-    #      char blanks[24];
-    #      char sas_create[16];         /* datetime created         */
-    #      };
-    #
-    # 3. Second real header record
-    #
-    #       ddMMMyy:hh:mm:ss
-    #
-    #    In this record, the string is the datetime modified. Most
-    #    often, the datetime created and datetime modified will always
-    #    be the same. Pad with ASCII blanks to 80 bytes. Note that only
-    #    a 2-digit year appears. If any program needs to read in this
-    #    2-digit year, be prepared to deal with dates in the 1900s or
-    #    the 2000s.
-
-    pattern = re.compile(
-        rb'HEADER RECORD\*{7}LIBRARY HEADER RECORD\!{7}0{30} {2}'
-        rb'SAS {5}SAS {5}SASLIB {2}'
-        rb'(?P<version>.{8})(?P<os>.{8}) {24}(?P<created>.{16})'
-        rb'(?P<modified>.{16}) {64}'
-        rb'(?P<members>.*)',
-        re.DOTALL,
-    )
-
-    @classmethod
-    def match(cls, bytestring):
-        """
-        Parse a SAS XPORT document from a byte string.
-        """
-        mview = memoryview(bytestring)
-        lines = [mview[i * 80:(i + 1) * 80] for i in range(4)]
-        LOG.debug(f'Document begins with' + '\n%s' * len(lines), *lines)
-        mo = cls.pattern.match(mview)
-        if mo is None:
-            raise ValueError('Document does not match SAS Version 5 or 6 Transport (XPORT) format')
-        members = {header.name: header.data for header in MemberHeader.finditer(mo['members'])}
-        return Library(
-            members=members,
-            created=strptime(mo['created']),
-            modified=strptime(mo['modified']),
-            os=mo['os'].strip(b'\x00').decode('ascii').strip(),
-            version=mo['version'].strip(b'\x00').decode('ascii').strip(),
-        )
-
-
-#     template = f'''\
-# HEADER RECORD{'*' * 7}LIBRARY HEADER RECORD{'!' * 7}{'0' * 30}  \
-# SAS     SAS     SASLIB  \
-# %(version)8b%(os)8b{' ' * 24}%(created)16b\
-# %(modified)16b{' ' * 64}\
-# %(members)b\
-# '''.encode('ascii')
-
-#     def __bytes__(self):
-#         """
-#         XPORT-format bytes string.
-#         """
-#         return self.template % {
-#             b'version': '.'.join(self.sas_version).encode('ascii')[:8],
-#             b'os': self.os.encode('ascii')[:8],
-#             b'created': self.created.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
-#             b'modified': self.modified.strftime('%y%b%d:%H:%M:%S').upper().encode('ascii'),
-#             b'members': b''.join(bytes(member) for member in self.values()),
-#         }
-
-
 def load(fp):
     """
     Deserialize a SAS V5 transport file format document::
@@ -623,7 +831,7 @@ def load(fp):
     return loads(fp.read())
 
 
-def loads(s):
+def loads(bytestring):
     """
     Deserialize a SAS V5 transport file format document from a string::
 
@@ -631,7 +839,7 @@ def loads(s):
             bytestring = f.read()
         data = loads(bytestring)
     """
-    return Library.match(s)
+    return Library.from_bytes(bytestring)
 
 
 def dump(library, fp):
@@ -656,4 +864,4 @@ def dumps(library):
         with open('example.xpt', 'wb') as f:
             f.write(bytestring)
     """
-    return bytes(library)
+    return bytes(Library(library))
