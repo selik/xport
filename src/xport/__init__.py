@@ -7,8 +7,10 @@ import enum
 import logging
 import re
 import struct
+import textwrap
 import warnings
 from collections.abc import Mapping, MutableMapping
+from datetime import datetime
 from io import StringIO
 
 # Community Packages
@@ -76,7 +78,12 @@ class Informat:
         """
         REPL-format string.
         """
-        return f'{type(self).__name__}({str(self)!r})'
+        return '{cls}(name={name!r}, length={length!r}, decimals={decimals!r})'.format(
+            cls=type(self).__name__,
+            name=self.name,
+            length=self.length,
+            decimals=self.decimals,
+        )
 
     def __bytes__(self):
         """
@@ -121,7 +128,9 @@ class Informat:
             decimals = int(mo.group('d'))
         except (TypeError, IndexError):
             decimals = 0
-        return cls(*args, name=name, length=length, decimals=decimals, **kwds)
+        form = cls(*args, name=name, length=length, decimals=decimals, **kwds)
+        LOG.debug(f'Parsed {form!r} from {spec!r}')
+        return form
 
     @property
     def name(self):
@@ -168,8 +177,21 @@ class Format(Informat):
         """
         Initialize a SAS variable format.
         """
-        super().__init__(name, length, decimals)
         self._justify = justify
+        super().__init__(name, length, decimals)
+
+    def __repr__(self):
+        """
+        REPL-format string.
+        """
+        fmt = '{cls}(name={name!r}, length={length!r}, decimals={decimals!r}, justify={justify})'
+        return fmt.format(
+            cls=type(self).__name__,
+            name=self.name,
+            length=self.length,
+            decimals=self.decimals,
+            justify=self.justify,
+        )
 
     def __bytes__(self):
         """
@@ -247,7 +269,10 @@ class Variable(pd.Series):
 
     def __repr__(self):
         """REPL-format."""
-        return f'<{super().__repr__()} label={self.label!r}>'
+        metadata = (name.strip('_') for name in self._metadata)
+        metadata = {name: getattr(self, name) for name in metadata}
+        metadata = (f'{name}: {value}' for name, value in metadata.items() if value is not None)
+        return f'{type(self).__name__}\n{super().__repr__()}\n{", ".join(metadata)}'
 
     def __init__(
         self,
@@ -281,6 +306,7 @@ class Variable(pd.Series):
         self.copy_metadata(data)
         for name, value in metadata.items():
             setattr(self, name, getattr(self, name, value))
+        LOG.debug(f'Initialized {self}')
 
     def __finalize__(self, other, method=None, **kwds):
         """
@@ -293,6 +319,7 @@ class Variable(pd.Series):
         else:
             source = other
         self.copy_metadata(source)
+        LOG.debug(f'Finalized {self}')
         return self
 
     @property
@@ -388,11 +415,23 @@ class Dataset(pd.DataFrame):
 
     def __repr__(self):
         """REPL-format."""
-        return '\n'.join([
-            f'{type(self).__name__} (Name: {self.name})',
-            str(self.contents),
-            super().__repr__()
-        ])
+        metadata = (name.strip('_') for name in self._metadata)
+        metadata = {name: getattr(self, name) for name in metadata}
+        metadata = (f'{name}: {value}' for name, value in metadata.items() if value)
+        template = '''\
+            {cls} {name}
+            {variables_metadata}
+
+            {super}
+            {metadata}
+        '''
+        return textwrap.dedent(template).format(
+            cls=type(self).__name__,
+            name=self.name,
+            super=super().__repr__(),
+            metadata=', '.join(metadata),
+            variables_metadata=self.contents,
+        )
 
     def __init__(
         self,
@@ -429,6 +468,7 @@ class Dataset(pd.DataFrame):
         self.copy_metadata(data)
         for name, value in metadata.items():
             setattr(self, name, getattr(self, name, value))
+        LOG.debug(f'Initialized {self}')
 
     def __finalize__(self, other, method=None, **kwds):
         """
@@ -444,7 +484,7 @@ class Dataset(pd.DataFrame):
         else:
             source = other
         self.copy_metadata(source)
-        LOG.debug(f'{type(self).__name__}.__finalize__\n{self!r}')
+        LOG.debug(f'Finalized {self}')
         return self
 
     def __setitem__(self, key, value):
@@ -520,6 +560,10 @@ class Library(MutableMapping):
         """
         Initialize a SAS data library.
         """
+        if created is None:
+            created = datetime.now()
+        if modified is None:
+            modified = created
         self.created = created
         self.modified = modified
         self.sas_os = sas_os
@@ -594,24 +638,146 @@ class Library(MutableMapping):
         return same_keys and same_values
 
 
-def from_columns(mapping, f):
-    """
-
-    """
-    # Avoid circular import problems.
-    import xport.v56
-    warnings.warn('Please use ``xport.v56.dump`` in the future', DeprecationWarning)
-    library = xport.v56.Library([xport.v56.Member(mapping)])
-    f.write(bytes(library))
+########################################################################
+# Legacy, keeping backwards compatibility.
 
 
-def from_rows(iterable, f):
+def from_columns(mapping, fp):
     """
+    Write columns to the open file opbject ``fp`` in XPT-format.
 
+    The mapping should be of column names to equal-length sequences.
+
+    Column labels are restricted to 40 characters. The XPT format also
+    requires a separate column "name" that is restricted to 8
+    characters. This name will be automatically created based on the
+    column label -- the first 8 characters, non-alphabet characters
+    replaced with underscores, padded to 8 characters if necessary.  All
+    text strings, including column labels, will be converted to bytes
+    using the ISO-8859-1 encoding.
     """
-    # Avoid circular import problems.
-    import xport.v56
-    warnings.warn('Please use ``xport.v56.dump`` in the future', DeprecationWarning)
+    df = pd.DataFrame(mapping)
+    return from_dataframe(df, fp)
+
+
+def from_rows(iterable, fp):
+    """
+    Write rows to the open file object ``fp`` in XPT-format.
+
+    In this case, ``rows`` should be an iterable of iterables, such as a
+    list of tuples. If the rows are mappings or namedtuples (or any
+    instance of a tuple that has a ``._fields`` attribute), the column
+    labels will be inferred from the keys or attributes of the first
+    row.
+
+    Column labels are restricted to 40 characters. The XPT format also
+    requires a separate column "name" that is restricted to 8
+    characters. This name will be automatically created based on the
+    column label -- the first 8 characters, non-alphabet characters
+    replaced with underscores, padded to 8 characters if necessary.  All
+    text strings, including column labels, will be converted to bytes
+    using the ISO-8859-1 encoding.
+    """
     df = pd.DataFrame(iterable)
-    library = xport.v56.Library([xport.v56.Member(df)])
-    f.write(bytes(library))
+    return from_dataframe(df, fp)
+
+
+def from_dataframe(dataframe, fp):
+    """
+    Write a Pandas ``DataFrame`` to an open file-like object, ``fp``, in
+    XPT-format.
+    """
+    # Avoid circular import problems.
+    from xport.v56 import dump
+    warnings.warn('Please use ``xport.v56.dump`` in the future', DeprecationWarning)
+    library = Library([Dataset(dataframe)])
+    dump(library, fp)
+
+
+def to_rows(fp):
+    """
+    Read a file in XPT-format and return rows.
+    Deserialize ``fp`` (a ``.read()``-supporting file-like object
+    containing an XPT document) to a list of rows. As XPT files are
+    encoded in their own special format, the ``fp`` object must be in
+    bytes-mode. ``Row`` objects will be namedtuples with attributes
+    parsed from the XPT metadata.
+    """
+    df = to_dataframe(fp)
+    return list(df.itertuples(index=False, name=False))
+
+
+def to_columns(fp):
+    """
+    Read a file in XPT-format and return columns as a dict of lists.
+    Deserialize ``fp`` (a ``.read()``-supporting file-like object
+    containing an XPT document) to a list of rows. As XPT files are
+    encoded in their own special format, the ``fp`` object must be in
+    bytes-mode.
+    """
+    dataset = to_dataframe(fp)
+    return {k: v for k, v in dataset.items()}
+
+
+def to_numpy(fp):
+    """
+    Read a file in SAS XPT format and return a NumPy array.
+    Deserialize ``fp`` (a ``.read()``-supporting file-like object
+    containing an XPT document) to a list of rows. As XPT files are
+    encoded in their own special format, the ``fp`` object must be in
+    bytes-mode.
+    """
+    return to_dataframe(fp).values
+
+
+def to_dataframe(fp):
+    """
+    Read a file in SAS XPT format and return a Pandas DataFrame.
+    Deserialize ``fp`` (a ``.read()``-supporting file-like object
+    containing an XPT document) to a list of rows. As XPT files are
+    encoded in their own special format, the ``fp`` object must be in
+    bytes-mode.
+    """
+    # Avoid circular import problems.
+    from xport.v56 import load
+    warnings.warn('Please use ``xport.v56.load`` in the future', DeprecationWarning)
+    library = load(fp)
+    dataset = next(library.values())
+    return dataset
+
+
+class Reader:
+    """
+    Deserialize ``self._fp`` (a ``.read()``-supporting file-like object
+    containing an XPT document) to a Python object.
+
+    The returned object is an iterator.  Each iteration returns an
+    observation from the XPT file.
+
+        with open('example.xpt', 'rb') as f:
+            for row in xport.Reader(f):
+                process(row)
+    """
+
+    def __init__(self, fp):
+        self.dataset = to_dataframe(fp)
+
+    def __iter__(self):
+        return iter(self.dataset.itertuples(index=False, name='Observation'))
+
+    def fields(self):
+        return tuple(self.dataset.columns)
+
+    def __getattr__(self, name):
+        return getattr(self.dataset, name)
+
+
+class NamedTupleReader(Reader):
+    pass  # Reader already yields namedtuples.
+
+
+class DictReader(Reader):
+
+    def __iter__(self):
+        for row in super().__iter__():
+            yield row._asdict()

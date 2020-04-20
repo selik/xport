@@ -56,7 +56,6 @@ class TestInformat:
         for s in specs:
             iform = xport.Informat.from_spec(s)
             assert str(iform) == s
-            assert repr(iform) == f'Informat({s!r})'
 
 
 class TestFormat:
@@ -91,7 +90,6 @@ class TestFormat:
         for s in specs:
             iform = xport.Format.from_spec(s)
             assert str(iform) == s
-            assert repr(iform) == f'Format({s!r})'
 
 
 class TestVariableMetadata:
@@ -199,6 +197,7 @@ class TestDatasetMetadata:
             })),
             ds,
         )
+        self.compare_metadata(pd.concat([ds, ds]), ds)
 
     def test_contents(self):
         """

@@ -302,8 +302,10 @@ class MemberHeader(Mapping):
 
     def __repr__(self):
         """REPL-format."""
-        metadata = (f'{k.title()}: {getattr(self, k)}' for k in xport.Dataset._metadata)
-        return f'<{type(self).__name__} {" ".join(metadata)}>'
+        metadata = (name.strip('_') for name in xport.Dataset._metadata)
+        metadata = {name: getattr(self, name) for name in metadata}
+        metadata = (f'{k.title()}: {v}' for k, v in metadata.items() if v is not None)
+        return f'<{type(self).__name__} {", ".join(metadata)}>'
 
     def __getitem__(self, name):
         """
@@ -325,15 +327,9 @@ class MemberHeader(Mapping):
 
     def __eq__(self, other):
         """Equality."""
-        metadata = [
-            'name',
-            'label',
-            'dataset_type',
-            'created',
-            'modified',
-            'sas_os',
-            'sas_version',
-        ]
+        if not isinstance(other, MemberHeader):
+            raise TypeError(f"Can't compare {type(self).__name__} with {type(other).__name__}")
+        metadata = (name.strip('_') for name in xport.Dataset._metadata)
         return super().__eq__(other) and all(
             getattr(self, name) == getattr(other, name) for name in metadata
         )
@@ -381,7 +377,7 @@ class MemberHeader(Mapping):
         namestrs = [Namestr.from_bytes(b) for b in chunks()]
         if len(namestrs) != n:
             raise ValueError(f'Expected {n}, got {len(namestrs)}')
-        return cls(
+        self = cls(
             name=mo['name'].strip(b'\x00').decode('ISO-8859-1').strip(),
             label=mo['label'].strip(b'\x00').decode('ISO-8859-1').strip(),
             dataset_type=mo['type'].strip(b'\x00').decode('ISO-8859-1').strip(),
@@ -391,6 +387,7 @@ class MemberHeader(Mapping):
             modified=strptime(mo['modified']),
             namestrs=namestrs,
         )
+        return self
 
     template = f'''\
 HEADER RECORD{'*' * 7}MEMBER  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
@@ -571,6 +568,8 @@ class Member(xport.Dataset):
         head = cls.from_header(header)
         data = Member(pd.DataFrame.from_records(observations, columns=list(header)))
         data.copy_metadata(head)
+        LOG.info(f'Decoded XPORT dataset {data.name!r}')
+        LOG.debug('%s', data)
         return data
 
     def __bytes__(self):
@@ -628,6 +627,7 @@ class Library(xport.Library):
         """
         Parse a SAS XPORT document from a byte string.
         """
+        LOG.debug(f'Decoding {cls.__name__} from {len(bytestring)} bytes')
         mview = memoryview(bytestring)
         mo = cls.pattern.match(mview)
         if mo is None:
@@ -638,13 +638,15 @@ class Library(xport.Library):
         matches = member_header_re.finditer(mview)
         indices = [m.start(0) for m in matches] + [None]
         chunks = (mview[i:j] for i, j in zip(indices, indices[1:]))
-        return Library(
+        self = Library(
             members=map(Member.from_bytes, chunks),
             created=strptime(mo['created']),
             modified=strptime(mo['modified']),
             sas_os=mo['os'].strip(b'\x00').decode('ISO-8859-1').strip(),
             sas_version=mo['version'].strip(b'\x00').decode('ISO-8859-1').strip(),
         )
+        LOG.info(f'Decoded {self}')
+        return self
 
     template = f'''\
 HEADER RECORD{'*' * 7}LIBRARY HEADER RECORD{'!' * 7}{'0' * 30}  \

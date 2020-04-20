@@ -3,6 +3,7 @@ Tests for XPT format from SAS versions 5 and 6.
 """
 
 # Standard Library
+import math
 from datetime import datetime
 
 # Community Packages
@@ -246,12 +247,61 @@ class TestLibrary:
         assert xport.v56.Library.from_bytes(bytestring)
 
 
+class TestIEEEtoIBM:
+
+    def roundtrip(self, n):
+        ibm = xport.v56.ieee_to_ibm(n)
+        ieee = xport.v56.ibm_to_ieee(ibm)
+        return round(ieee, 9)
+
+    def test_overflow(self):
+        with pytest.raises(xport.v56.Overflow):
+            xport.v56.ieee_to_ibm(16**63)
+
+    def test_underflow(self):
+        with pytest.raises(xport.v56.Underflow):
+            xport.v56.ieee_to_ibm(16**-66)
+
+    def test_nan(self):
+        n = float('nan')
+        assert math.isnan(self.roundtrip(n))
+
+    def test_zero(self):
+        assert self.roundtrip(0) == 0
+
+    def test_small_magnitude_integers(self):
+        for i in range(-1000, 1000):
+            assert self.roundtrip(i) == i
+
+    def test_small_magnitude_floats(self):
+        for i in range(-10, 10):
+            i /= 1000
+            assert self.roundtrip(i) == i
+
+    def test_large_magnitude_floats(self):
+        n = int(1e9)
+        for i in range(n, n + 100):
+            assert self.roundtrip(i) == i
+
+    def test_large_magnitude_floats_with_fraction(self):
+        offset = 1e9
+        for i in range(100):
+            i /= 1e9
+            x = i + offset
+            assert self.roundtrip(x) == x
+
+    def test_very_small_magnitude_floats(self):
+        for i in range(-10, 10):
+            i /= 1e6
+            assert self.roundtrip(i) == i
+
+
 class TestEncode:
     """
     Verify various XPORT-encode features.
     """
 
-    def test_dumps_numeric_type_conversion(self):
+    def test_numeric_type_conversion(self):
         """
         Verify numeric types convert to float when writing.
         """
@@ -260,29 +310,28 @@ class TestEncode:
         output = xport.v56.loads(bytestring)
         assert output['x']['a'].dtype.name == 'float64'
 
+    @pytest.mark.skip('Debugging')
+    def test_invalid_types(self):
+        """
+        Verify non-numeric, non-text data will raise an error.
+        """
+        library = xport.v56.Library(members={'x': xport.v56.Member({'a': [object()]})})
+        with pytest.raises(TypeError):
+            xport.v56.dumps(library)
+        # TODO: Investigate why it raises struct.error instead of TypeError.
 
-# @pytest.mark.skip('XPORT requires ASCII, not ISO-8859-1')
-# def test_dumps_text_type_conversion():
-#     """
-#     Verify text types are converted when writing.
-#     """
-#     # This test is interesting because b'\xff' is not valid Unicode.
-#     # https://en.wikipedia.org/wiki/ISO/IEC_8859-1
-#     b = b'\xff'
-#     s = b.decode('ISO-8859-1')
-#     library_b = xport.v56.Library(members={'x': xport.v56.Member({'a': [b]})})
-#     library_s = xport.v56.Library(members={'x': xport.v56.Member({'a': [s]})})
-#     assert xport.v56.dumps(library_s) == xport.v56.dumps(library_b)
+    def test_text_type_conversion(self):
+        """
+        Verify text types are converted when writing.
+        """
+        # This test is interesting because b'\xff' is not valid Unicode.
+        # https://en.wikipedia.org/wiki/ISO/IEC_8859-1
+        b = b'\xff'
+        s = b.decode('ISO-8859-1')
+        library_b = xport.v56.Library(members={'x': xport.v56.Member({'a': [b]})})
+        library_s = xport.v56.Library(members={'x': xport.v56.Member({'a': [s]})})
+        assert xport.v56.dumps(library_s) == xport.v56.dumps(library_b)
 
-# @pytest.mark.skip('Debugging')
-# def test_dumps_invalid_types():
-#     """
-#     Verify non-numeric, non-text data will raise an error.
-#     """
-#     library = xport.v56.Library(members={'x': xport.v56.Member({'a': [object()]})})
-#     with pytest.raises(TypeError):
-#         xport.v56.dumps(library)
-#     # TODO: Investigate why it raises struct.error instead of TypeError.
 
 # def test_dumps_name_and_label_length_validation():
 #     """
@@ -326,31 +375,6 @@ class TestEncode:
 #         )
 #         dataset = xport.v56.loads(b)
 #         assert (dataset['x']['a'] == issue).all()
-
-# def test_overflow():
-#     """
-#     Some values are too large for IBM-format.
-#     """
-#     library = xport.v56.Library(
-#         members={
-#             'x': xport.v56.Member(observations=pd.DataFrame({'a': [np.finfo('float64').max]})),
-#         }
-#     )
-#     with pytest.raises(xport.v56.Overflow):
-#         xport.v56.dumps(library)
-
-# @pytest.mark.skip('Epsilon does not cause Underflow')
-# def test_underflow():
-#     """
-#     Some values are too small for IBM-format.
-#     """
-#     library = xport.v56.Library(
-#         members={
-#             'x': xport.v56.Member(observations=pd.DataFrame({'a': [np.finfo('float64').eps]})),
-#         }
-#     )
-#     with pytest.raises(xport.v56.Underflow):
-#         xport.v56.dumps(library)
 
 # def test_float_round_trip():
 #     """
