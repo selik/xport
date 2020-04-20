@@ -154,8 +154,8 @@ class Namestr:
             vtype=xport.VariableType(tokens[0]),
             length=tokens[2],
             number=tokens[3],
-            name=tokens[4].strip(b'\x00').decode('ascii').rstrip(),
-            label=tokens[5].strip(b'\x00').decode('ascii').rstrip(),
+            name=tokens[4].strip(b'\x00').decode('ISO-8859-1').rstrip(),
+            label=tokens[5].strip(b'\x00').decode('ISO-8859-1').rstrip(),
             format=xport.Format.from_struct_tokens(*tokens[6:10]),
             informat=xport.Informat.from_struct_tokens(*tokens[11:14]),
             position=tokens[14],
@@ -382,11 +382,11 @@ class MemberHeader(Mapping):
         if len(namestrs) != n:
             raise ValueError(f'Expected {n}, got {len(namestrs)}')
         return cls(
-            name=mo['name'].strip(b'\x00').decode('ascii').strip(),
-            label=mo['label'].strip(b'\x00').decode('ascii').strip(),
-            dataset_type=mo['type'].strip(b'\x00').decode('ascii').strip(),
-            sas_os=mo['os'].strip(b'\x00').decode('ascii').strip(),
-            sas_version=mo['version'].strip().decode('ascii'),
+            name=mo['name'].strip(b'\x00').decode('ISO-8859-1').strip(),
+            label=mo['label'].strip(b'\x00').decode('ISO-8859-1').strip(),
+            dataset_type=mo['type'].strip(b'\x00').decode('ISO-8859-1').strip(),
+            sas_os=mo['os'].strip(b'\x00').decode('ISO-8859-1').strip(),
+            sas_version=mo['version'].strip().decode('ISO-8859-1'),
             created=strptime(mo['created']),
             modified=strptime(mo['modified']),
             namestrs=namestrs,
@@ -466,7 +466,7 @@ class Observations(Iterator):
         Observation = namedtuple('Observation', list(header))
 
         def character_decode(s):
-            return s.strip(b'\x00').decode('ascii').rstrip()
+            return s.strip(b'\x00').decode('ISO-8859-1').rstrip()
 
         converters = []
         for namestr in header.values():
@@ -642,8 +642,8 @@ class Library(xport.Library):
             members=map(Member.from_bytes, chunks),
             created=strptime(mo['created']),
             modified=strptime(mo['modified']),
-            sas_os=mo['os'].strip(b'\x00').decode('ascii').strip(),
-            sas_version=mo['version'].strip(b'\x00').decode('ascii').strip(),
+            sas_os=mo['os'].strip(b'\x00').decode('ISO-8859-1').strip(),
+            sas_version=mo['version'].strip(b'\x00').decode('ISO-8859-1').strip(),
         )
 
     template = f'''\

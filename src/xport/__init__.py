@@ -381,7 +381,10 @@ class Dataset(pd.DataFrame):
                 object.__setattr__(self, name, getattr(other, name, None))
         if isinstance(other, (Dataset, Mapping)):
             for k, v in self.items():
-                v.copy_metadata(other[k])
+                try:
+                    v.copy_metadata(other[k])
+                except KeyError:
+                    continue
 
     def __repr__(self):
         """REPL-format."""
