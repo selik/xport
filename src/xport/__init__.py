@@ -681,7 +681,7 @@ def from_rows(iterable, fp):
     using the ISO-8859-1 encoding.
     """
     df = pd.DataFrame(iterable)
-    df.columns = [f'x{i:02d}' for i in df]
+    df.columns = [f'x{i:02d}' if isinstance(i, int) else i for i in df]
     return from_dataframe(df, fp)
 
 
@@ -768,6 +768,7 @@ class Reader:
     def __iter__(self):
         return iter(self.dataset.itertuples(index=False, name='Observation'))
 
+    @property
     def fields(self):
         return tuple(self.dataset.columns)
 
