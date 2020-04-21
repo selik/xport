@@ -144,6 +144,7 @@ class Namestr:
         """
         Construct a ``Namestr`` from an XPORT-format byte string.
         """
+        LOG.debug(f'Decode {type(cls).__name__}')
         # dtype='float' if vtype == xport.VariableType.NUMERIC else 'string'
         size = len(bytestring)
         if size == 136:
@@ -165,6 +166,7 @@ class Namestr:
         """
         Encode in XPORT-format.
         """
+        LOG.debug(f'Encode {type(self).__name__}')
         fmt = self.fmts[140]
         format_name = self.format.name.encode('ascii')
         if len(format_name) > 8:
@@ -362,6 +364,7 @@ class MemberHeader(Mapping):
         """
         Construct a ``MemberHeader`` from an XPORT-format byte string.
         """
+        LOG.debug(f'Decode {type(cls).__name__}')
         mo = cls.pattern.search(bytestring)
         if mo is None:
             raise ValueError('No member header found')
@@ -404,6 +407,7 @@ HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
         """
         Encode in XPORT-format.
         """
+        LOG.debug(f'Encode {type(self).__name__}')
         namestrs = b''.join(bytes(ns) for ns in self.values())
         if len(namestrs) % 80:
             namestrs += b' ' * (80 - len(namestrs) % 80)
@@ -460,6 +464,7 @@ class Observations(Iterator):
         """
         Yield observations from an XPORT-format byte string.
         """
+        LOG.debug(f'Decode {type(cls).__name__}')
         Observation = namedtuple('Observation', list(header))
 
         def character_decode(s):
@@ -499,7 +504,7 @@ class Observations(Iterator):
             if namestr.vtype == xport.VariableType.NUMERIC:
                 converters.append(ieee_to_ibm)
             else:
-                converters.append(lambda s: s.encode('ascii').ljust(namestr.length))
+                converters.append(lambda s: s.encode('ISO-8859-1').ljust(namestr.length))
         for t in self:
             g = (f(v) for f, v in zip(converters, t))
             yield struct.pack(fmt, *g)
@@ -508,6 +513,7 @@ class Observations(Iterator):
         """
         Encode in XPORT-format.
         """
+        LOG.debug(f'Encode {type(self).__name__}')
         observations = b''.join(self.to_bytes())
         if len(observations) % 80:
             observations += b' ' * (80 - len(observations) % 80)
@@ -544,6 +550,7 @@ class Member(xport.Dataset):
         """
         Decode the first ``Member`` from an XPORT-format byte string.
         """
+        LOG.debug(f'Decode {type(cls).__name__}')
         mview = memoryview(bytestring)
         matches = pattern.finditer(mview)
 
@@ -576,6 +583,29 @@ class Member(xport.Dataset):
         """
         Encode in XPORT-format.
         """
+        LOG.debug(f'Encode {type(self).__name__}')
+        dtype_kind_conversions = {
+            'O': 'string',
+            'b': 'float',
+            'i': 'float',
+            'f': 'float',
+        }
+        dtypes = self.dtypes.to_dict()
+        conversions = {}
+        for column, dtype in dtypes.items():
+            try:
+                conversions[column] = dtype_kind_conversions[dtype.kind]
+            except KeyError:
+                continue
+        if conversions:
+            warnings.warn(f'Converting column dtypes {conversions}')
+            self = self.copy()  # Don't mutate!
+            for column, dtype in conversions.items():
+                LOG.warning(f'Converting column {column!r} from {dtypes[column]} to {dtype}')
+                try:
+                    self[column] = self[column].astype(dtype)
+                except Exception:
+                    raise TypeError(f'Could not coerce column {column!r} to {dtype}')
         header = bytes(MemberHeader.from_dataset(self))
         observations = bytes(Observations.from_dataset(self))
         return header + observations

@@ -236,7 +236,7 @@ class TestLibrary:
             xport.Library({'x': xport.Dataset(name='y')})
 
     def test_create_from_list(self):
-        lib = xport.Library([xport.Dataset()])
+        lib = xport.Library(xport.Dataset())
         assert None in lib
         with pytest.warns(UserWarning, match=r'More than one dataset named'):
             xport.Library([xport.Dataset(), xport.Dataset()])

@@ -234,7 +234,7 @@ class TestLibrary:
         """
         Verify dumps/loads of a library with an empty member.
         """
-        empty = xport.v56.Library([xport.v56.Member()])
+        empty = xport.v56.Library(xport.v56.Member())
         bytestring = bytes(empty)
         xport.v56.Library.from_bytes(bytestring)
 
@@ -301,62 +301,65 @@ class TestEncode:
     Verify various XPORT-encode features.
     """
 
+    def dump_and_load(self, library):
+        bytestring = xport.v56.dumps(library)
+        return xport.v56.loads(bytestring)
+
     def test_numeric_type_conversion(self):
         """
         Verify numeric types convert to float when writing.
         """
-        library = xport.v56.Library({'x': xport.v56.Member({'a': [1]})})
-        bytestring = xport.v56.dumps(library)
-        output = xport.v56.loads(bytestring)
-        assert output['x']['a'].dtype.name == 'float64'
+        numerics = [
+            1,
+            True,
+        ]
+        for x in numerics:
+            with pytest.warns(UserWarning, match=r'Converting column dtypes'):
+                library = xport.v56.Library({'A': xport.v56.Member({'x': [x]})})
+                output = self.dump_and_load(library)
+                assert output['A']['x'].dtype.name == 'float64'
+                assert output['A']['x'].iloc[0] == 1.0
 
-    @pytest.mark.skip('Debugging')
     def test_invalid_types(self):
         """
-        Verify non-numeric, non-text data will raise an error.
+        Verify invalid types raise errors on write.
         """
-        library = xport.v56.Library(members={'x': xport.v56.Member({'a': [object()]})})
-        with pytest.raises(TypeError):
-            xport.v56.dumps(library)
-        # TODO: Investigate why it raises struct.error instead of TypeError.
+        invalid = [
+            b'\x00',
+            object(),
+            (1, 2, 3),
+        ]
+        for bad in invalid:
+            with pytest.warns(UserWarning, match=r'Converting column dtypes'):
+                with pytest.raises(TypeError):
+                    library = xport.v56.Library(xport.v56.Member({'a': [bad]}))
+                    xport.v56.dumps(library)
 
-    def test_text_type_conversion(self):
+    def test_dumps_name_and_label_length_validation():
         """
-        Verify text types are converted when writing.
+        Verify variable and dataset name and label length.
         """
-        # This test is interesting because b'\xff' is not valid Unicode.
-        # https://en.wikipedia.org/wiki/ISO/IEC_8859-1
-        b = b'\xff'
-        s = b.decode('ISO-8859-1')
-        library_b = xport.v56.Library(members={'x': xport.v56.Member({'a': [b]})})
-        library_s = xport.v56.Library(members={'x': xport.v56.Member({'a': [s]})})
-        assert xport.v56.dumps(library_s) == xport.v56.dumps(library_b)
+        # Names must be <= 8 characters.
+        # Labels must be <= 40 characters.
+        # SAS v8 Transport Files allow longer labels.
+        with pytest.raises(ValueError):
+            xport.v56.dumps(
+                xport.v56.Library(
+                    members={
+                        'x' * 9: xport.v56.Member(observations=pd.DataFrame({'a': []})),
+                    }
+                )
+            )
+        with pytest.raises(ValueError):
+            xport.v56.dumps(
+                xport.v56.Library(
+                    members={
+                        'x': xport.v56.Member(observations=pd.DataFrame({'a' * 9: []})),
+                    }
+                )
+            )
+        # TODO: Test label length error checking.
 
-
-# def test_dumps_name_and_label_length_validation():
-#     """
-#     Verify variable and dataset name and label length.
-#     """
-#     # Names must be <= 8 characters.
-#     # Labels must be <= 40 characters.
-#     # SAS v8 Transport Files allow longer labels.
-#     with pytest.raises(ValueError):
-#         xport.v56.dumps(
-#             xport.v56.Library(
-#                 members={
-#                     'x' * 9: xport.v56.Member(observations=pd.DataFrame({'a': []})),
-#                 }
-#             )
-#         )
-#     with pytest.raises(ValueError):
-#         xport.v56.dumps(
-#             xport.v56.Library(
-#                 members={
-#                     'x': xport.v56.Member(observations=pd.DataFrame({'a' * 9: []})),
-#                 }
-#             )
-#         )
-#     # TODO: Test label length error checking.
 
 # def test_troublesome_text():
 #     """

@@ -570,6 +570,8 @@ class Library(MutableMapping):
         self.sas_version = sas_version
 
         self._members = {}
+        if isinstance(members, Dataset):
+            members = {members.name: members}
         if isinstance(members, Library):
             self._members = members._members
             self.created = members.created
