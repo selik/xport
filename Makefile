@@ -62,6 +62,11 @@ check: conda-update 			# Verify that everything is working
 git-hooks:
 	git config core.hookspath .githooks
 
+pypi: clean dist			# Upload to PyPI
+	$(MAKE) clean
+	$(MAKE) dist
+	twine upload --repository pypi --config-file ~/.pypirc dist/*
+
 
 ########################################################################
 # Miniconda
