@@ -5,5 +5,6 @@ channels:
 dependencies:
   - pip>=19
   - python>=3.7.*
+  - pyyaml
   - pip:
     - "--editable=.[dev]"

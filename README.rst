@@ -30,7 +30,7 @@ This module *has not yet been updated* to work with the new version.
 However, if you're using SAS v8+, you're probably not using XPT
 format. The changes to the format appear to be trivial changes to the
 metadata, but this module's current error-checking will raise a
-``ParseError``. If you'd like an update for v8, please let me know by
+``ValueError``. If you'd like an update for v8, please let me know by
 `submitting an issue`_.
 
 .. _United States government agencies: https://www.google.com/search?q=site:.gov+xpt+file
@@ -47,11 +47,11 @@ Installation
 ============
 
 This project requires Python v3.7+.  Grab the latest stable version from
-PyPI.::
+PyPI.
 
 .. code:: bash
 
-    $ python -m pip install xport
+    $ python -m pip install --upgrade xport
 
 
 
@@ -63,37 +63,41 @@ This module follows the common pattern of providing ``load`` and
 
 .. code:: python
 
+    import xport.v56
+
     with open('example.xpt', 'rb') as f:
-        library = xport.load(f)
+        library = xport.v56.load(f)
 
 
-The ``library`` in this example is structured as a collection of
-datasets, which in turn are collections of columns, mapping column names
-to lists of values.  This is similar to the `Pandas`_ dataframe concept.
-Each value will be either a ``str`` or ``float``, as specified by the
-XPT file metadata.  Note that since XPT files are in an unusual binary
-format, you should open them using mode ``'rb'``.
+The XPT decoders, ``xport.load`` and ``xport.loads``, return a
+``xport.Library``, which is a mapping (``dict``-like) of
+``xport.Dataset``s.  The ``xport.Dataset``` is a subclass of
+``pandas.DataFrame`` with SAS metadata attributes (name, label, etc.).
+The columns of a ``xport.Dataset`` are ``xport.Variable`` types, which
+are subclasses of ``pandas.Series`` with SAS metadata (name, label,
+format, etc.).
 
-Each ``Member`` dataset of a ``Library`` has a handful of metadata
-attributes:
+If you're not familiar with `Pandas`_'s dataframes, it's easy to think
+of them as a dictionary of columns, mapping variable names to variable
+data.
 
-* ``Member.name`` -- The name of the dataset.
+The SAS Transport (XPORT) format only supports two kinds of data.  Each
+value is either numeric or character, so ``xport.load`` decodes the
+values as either ``str`` or ``float``.
 
-* ``Member.labels`` -- Descriptions of each variable.
-
-* ``Member.formats`` -- Display formats of each variable.
-
+Note that since XPT files are in an unusual binary format, you should
+open them using mode ``'rb'``.
 
 .. _Pandas: http://pandas.pydata.org/
 
 
-
-You can also use the ``xport`` module as a command-line tool to convert an XPT
-file to CSV (comma-separated values) file.
+You can also use the ``xport`` module as a command-line tool to convert
+an XPT file to CSV (comma-separated values) file.  The ``xport``
+executable is a friendly alias for ``python -m xport``.
 
 .. code:: bash
 
-    $ python -m xport example.xpt > example.csv
+    $ xport example.xpt > example.csv
 
 
 Writing XPT
@@ -104,30 +108,34 @@ and ``dumps`` functions for writing data to a SAS file format.
 
 .. code:: python
 
-    columns = {
-        'numbers': [1, 3.14, 42],
-        'text': ['life', 'universe', 'everything'],
-    }
-    with open('answers.xpt', 'wb') as f:
-        xport.dump(columns, f)
+    import xport
+    import xport.v56
+
+    ds = xport.Dataset()
+    with open('example.xpt', 'wb') as f:
+        xport.v56.dump(ds, f)
 
 
-Because column names are restricted to 8 characters, you may wish to
-specify column labels as well, which are restricted to 40 characters for
-SAS V5 Transport files.
+Because the ``xport.Dataset`` is an extension of ``pandas.DataFrame``,
+you can create datasets in a variety of ways, converting easily from a
+dataframe to a dataset.
 
 .. code:: python
 
-    columns = {
-        'numbers': [1, 3.14, 42],
-        'text': ['life', 'universe', 'everything'],
-    }
-    labels = {
-        'numbers': 'All numbers are converted to float',
-        'text': 'All text is encoded by ISO-8859-1',
-    }
-    with open('answers.xpt', 'wb') as f:
-        xport.dump(columns, f, name='dataset1', labels=labels)
+    import pandas as pd
+    import xport
+    import xport.v56
+
+    df = pandas.DataFrame({'NUMBERS': [1, 2], 'TEXT': ['a', 'b']})
+    ds = xport.Dataset(df, name='MAX8CHRS', label='Up to 40!')
+    with open('example.xpt', 'wb') as f:
+        xport.v56.dump(ds, f)
+
+
+SAS Transport v5 restricts variable names to 8 characters (with a
+strange preference for uppercase) and labels to 40 characters.  If you
+want the relative comfort of SAS Transport v8's limit of 246 characters,
+please `make an enhancement request`_.
 
 
 Feature requests
@@ -136,28 +144,31 @@ Feature requests
 I'm happy to fix bugs, improve the interface, or make the module
 faster. Just `submit an issue`_ and I'll take a look.
 
+.. _make an enhancement request: https://github.com/selik/xport/issues/new
 .. _submit an issue: https://github.com/selik/xport/issues/new
-
 
 
 Contributing
 ============
 
-This project is configured to be developed in a Conda environment.::
+This project is configured to be developed in a Conda environment.
 
 .. code:: bash
 
     $ git clone git@github.com:selik/xport.git
     $ cd xport
-    $ make install  # Install into a Conda environment
-    $ conda activate xport
-    $ make install-html  # Build the docs website
+    $ make install          # Install into a Conda environment
+    $ conda activate xport  # Activate the Conda environment
+    $ make install-html     # Build the docs website
 
 
 Authors
 =======
 
 Original version by `Jack Cushman`_, 2012.
-Major revision by Michael Selik, 2016.
+
+Major revisions by `Michael Selik`_, 2016 and 2020.
 
 .. _Jack Cushman: https://github.com/jcushman
+
+.. _Michael Selik: https://github.com/selik

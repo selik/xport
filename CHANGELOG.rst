@@ -16,6 +16,6 @@ v1.0.0, 2016-10-21
 v2.0.0, 2016-10-21
   Reader yields regular tuples, not namedtuples
 
-v3.0.0, 2020-04-15
+v3.0.0, 2020-04-20
   Revise API to the load/dump pattern.
   Enable specifying dataset name, variable names, labels, and formats.
