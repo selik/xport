@@ -1,6 +1,32 @@
-.DS_Store*
-build/*
-*.pyc
-dist/*
-xport.egg-info/*
-README.html
+# Test data
+/data/
+*.csv
+
+# Sphinx output
+docs/_build
+*.pdf
+
+# Pytest cache
+/.pytest_cache
+
+# Python package files
+*.egg-info
+.eggs
+/build/
+/dist/
+
+# Python "compiled" modules
+__pycache__
+
+# Jupyter / IPython
+.ipynb_checkpoints
+*.ipynb
+
+# MacOS Spotlight
+.DS_Store
+
+# PyCharm folders
+.idea
+
+# VSCode settings
+.vscode

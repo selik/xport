@@ -1,0 +1,5 @@
+recursive-include src *
+global-exclude *.py[cod]
+include CHANGELOG.rst
+include README.rst
+include logging.yml

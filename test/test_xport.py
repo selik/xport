@@ -1,262 +1,312 @@
-'''
-Tests for ``xport.py``.
-'''
+"""
+Tests for the core interface.
+"""
 
-import csv
-from collections import OrderedDict, namedtuple
-import glob
-import math
-import os
-import string
-import unittest
+# Standard Library
 from io import BytesIO
+
+# Community Packages
+import pandas as pd
+import pytest
+
+# Xport Modules
 import xport
 
 
+class TestInformat:
+    """
+    Verify parsing and display of input formats.
+    """
 
-class TestCSVs(unittest.TestCase):
+    def test_spec_character(self):
+        """
+        Verify parsing from an informat specification.
+        """
+        assert xport.Informat.from_spec('$3.') == xport.Informat('$', 3, 0)
+        assert xport.Informat.from_spec('$CHAR10.') == xport.Informat('$CHAR', 10, 0)
 
-    def convert_types(self, row):
-        typed = []
-        for s in row:
-            try:
-                value = int(s)
-            except ValueError:
-                try:
-                    value = float(s)
-                except ValueError:
-                    try:
-                        value = s.decode('utf-8')
-                    except UnicodeDecodeError:
-                        value = s
-                    except AttributeError: # Python 3, no need to convert
-                        value = s
-            typed.append(value)
-        return tuple(typed)
+    def test_spec_numeric(self):
+        """
+        Verify parsing from an informat specification.
+        """
+        assert xport.Informat.from_spec('10.2') == xport.Informat('', 10, 2)
+        assert xport.Informat.from_spec('dollar26.') == xport.Informat('DOLLAR', 26, 0)
 
+    def test_struct_unpack(self):
+        """
+        Verify construction from struct tokens.
+        """
+        specs = [
+            '$CHAR10.',
+            'DOLLAR26.',
+        ]
+        for spec in specs:
+            form = xport.Informat.from_spec(spec)
+            b = bytes(form)
+            cpy = xport.Informat.unpack(b)
+            assert form.name == cpy.name
+            assert form.length == cpy.length
+            assert (form.decimals == cpy.decimals or form.decimals is None and cpy.decimals == 0)
 
-    def test_csvs(self):
-        for csvfile in glob.glob('test/data/*.csv'):
-            directory, filename = os.path.split(csvfile)
-            xptfile = os.path.join(directory, filename[:-4] + '.xpt')
-
-            with open(csvfile) as fcsv, open(xptfile, 'rb') as fxpt:
-                csvreader = csv.reader(fcsv)
-                xptreader = xport.reading.Reader(fxpt)
-
-                self.assertEqual(tuple(next(csvreader)), xptreader.fields)
-
-                values = (self.convert_types(row) for row in csvreader)
-                list(map(self.assertEqual, values, xptreader))
-
-
-
-class TestStringsDataset(unittest.TestCase):
-
-
-    def test_header(self):
-        with open('test/data/strings.xpt', 'rb') as f:
-            reader = xport.reading.Reader(f)
-            x, = reader._variables
-
-            assert reader.fields == ('X',)
-
-            assert x.name == 'X'
-            assert x.numeric == False
-            assert x.position == 0
-            assert x.size == 100
+    def test_display(self):
+        """
+        Verify string representation.
+        """
+        specs = [
+            '$CHAR10.',
+            'DOLLAR26.',
+        ]
+        for s in specs:
+            iform = xport.Informat.from_spec(s)
+            assert str(iform) == s
 
 
-    def test_length(self):
-        with open('test/data/strings.xpt', 'rb') as f:
-            assert len(list(xport.reading.Reader(f))) == 2
+class TestFormat:
+    """
+    Verify parsing and display of variable formats.
+    """
+
+    def test_spec_character(self):
+        """
+        Verify parsing from an informat specification.
+        """
+        just = xport.FormatAlignment.LEFT
+        assert xport.Format.from_spec('$3.', just) == xport.Format('$', 3, 0, just)
+        just = xport.FormatAlignment.RIGHT
+        assert xport.Format.from_spec('$CHAR10.', just) == xport.Format('$CHAR', 10, 0, just)
+
+    def test_spec_numeric(self):
+        """
+        Verify parsing from an informat specification.
+        """
+        assert xport.Format.from_spec('10.2') == xport.Format('', 10, 2)
+        assert xport.Format.from_spec('dollar26.') == xport.Format('DOLLAR', 26, 0)
+
+    def test_display(self):
+        """
+        Verify string representation.
+        """
+        specs = [
+            '$CHAR10.',
+            'DOLLAR26.',
+        ]
+        for s in specs:
+            iform = xport.Format.from_spec(s)
+            assert str(iform) == s
 
 
-    def test_values(self):
-        with open('test/data/strings.xpt', 'rb') as f:
-            it = (row.X for row in xport.reading.NamedTupleReader(f))
-            assert next(it) == ''.join(chr(i) for i in range(1, 101))
-            assert next(it) == ''.join(chr(i) for i in range(101,128))
+class TestVariableMetadata:
+    """
+    Verify set/get and validation of variable metadata.
+    """
+
+    @staticmethod
+    def compare_metadata(got, expected):
+        for name in expected._metadata:
+            assert getattr(got, name) == getattr(expected, name)
+        assert got.vtype == expected.vtype
+
+    def test_init(self):
+        """
+        Verify initialization.
+        """
+        v = xport.Variable(dtype='float')
+        for name in v._metadata:
+            getattr(v, name)  # Does not raise an error.
+
+    def test_copy_metadata(self):
+        """
+        Verify ``Series`` methods that copy will keep SAS metadata.
+        """
+        v = xport.Variable(
+            name='A',
+            label='Alpha',
+            format='$CHAR4.',
+            dtype='string',
+        )
+        self.compare_metadata(v.copy(), v)
+        self.compare_metadata(v.append(xport.Variable(['1'])), v)
+
+    def test_format(self):
+        v = xport.Variable(dtype='object')
+        v.format = value = '$CHAR10.'
+        assert v.format == xport.Format.from_spec(value)
+        with pytest.raises(ValueError):
+            v.format = ''
+        with pytest.raises(ValueError):
+            v.format = '$abcdefghi1.'
+
+    def test_informat(self):
+        v = xport.Variable(dtype='object')
+        v.informat = value = '10.2'
+        assert v.informat == xport.Informat.from_spec(value)
+        with pytest.raises(ValueError):
+            v.informat = '1.2.3'
+
+    @pytest.mark.skip('Not implemented')
+    def test_vtype(self):
+        character = ['string', 'object']
+        numeric = ['float', 'int', 'bool']
+        invalid = ['datetime64[ns]']
+        for dtype in character:
+            v = xport.Variable(dtype=dtype)
+            assert v.vtype == xport.VariableType.CHARACTER
+        for dtype in numeric:
+            v = xport.Variable(dtype=dtype)
+            assert v.vtype == xport.VariableType.NUMERIC
+        for dtype in invalid:
+            with pytest.raises(TypeError):
+                xport.Variable(dtype=dtype)
 
 
+class TestDatasetMetadata:
+    """
+    Verify set/get and validation of dataset metadata.
+    """
+
+    @staticmethod
+    def compare_metadata(got, expected):
+        for name in expected._metadata:
+            assert getattr(got, name) == getattr(expected, name)
+        for k, v in expected.items():
+            TestVariableMetadata.compare_metadata(got[k], v)
+        assert (got.contents == expected.contents).all(axis=None)
+
+    def test_init(self):
+        """
+        Verify initialization.
+        """
+        v = xport.Dataset()
+        for name in v._metadata:
+            getattr(v, name)  # Does not raise an error.
+
+    def test_copy_metadata(self):
+        """
+        Verify ``DataFrame`` methods that copy will keep SAS metadata.
+        """
+        ds = xport.Dataset(
+            data={
+                'a': [1],
+                'b': xport.Variable(['x'], label='Beta')
+            },
+            name='EXAMPLE',
+            label='Example',
+        )
+        self.compare_metadata(ds.copy(), ds)
+        self.compare_metadata(
+            ds.append(pd.DataFrame({
+                'a': [2],
+                'b': ['y'],
+            })),
+            ds,
+        )
+        self.compare_metadata(pd.concat([ds, ds]), ds)
+
+    def test_contents(self):
+        """
+        Verify variables metadata summary.
+        """
+        ds = xport.Dataset(
+            data={
+                'a': [1],
+                'b': xport.Variable(['x'], label='Beta'),
+                'c': [None],
+            },
+            name='EXAMPLE',
+            label='Example',
+        )
+        ds['a'].vtype = xport.VariableType.NUMERIC
+        ds['b'].vtype = xport.VariableType.CHARACTER
+        got = ds.contents
+        assert list(got.index) == [1, 2, 3]
+        assert list(got['Label']) == ['', 'Beta', '']
+        assert list(got['Type']) == ['Numeric', 'Character', '']
 
 
-class TestKnownValuesDataset(unittest.TestCase):
+class TestLibrary:
+    """
+    Verify get/set of dataset library attributes and members.
+    """
+
+    def test_create_empty(self):
+        xport.Library()
+
+    def test_create_from_mapping(self):
+        with pytest.warns(UserWarning, match=r'Set dataset name'):
+            lib = xport.Library({'x': xport.Dataset()})
+        assert 'x' in lib
+        with pytest.raises(ValueError):
+            xport.Library({'x': xport.Dataset(name='y')})
+
+    def test_create_from_list(self):
+        lib = xport.Library(xport.Dataset())
+        assert None in lib
+        with pytest.warns(UserWarning, match=r'More than one dataset named'):
+            xport.Library([xport.Dataset(), xport.Dataset()])
 
 
-    def test_header(self):
-        with open('test/data/known_values.xpt', 'rb') as f:
-            reader = xport.reading.Reader(f)
-            x, = reader._variables
+class TestLegacy:
+    """
+    Verify deprecated API still works.
+    """
 
-            assert reader.fields == ('X',)
+    # Gotta stay backwards compatible.  The FDA has written docs.
 
-            assert x.name == 'X'
-            assert x.numeric == True
-            assert x.position == 0
-            assert x.size == 8
-
-
-    def test_length(self):
-        with open('test/data/known_values.xpt', 'rb') as f:
-            assert len(list(xport.reading.Reader(f))) == 2123
-
-
-    def test_values(self):
-        with open('test/data/known_values.xpt', 'rb') as f:
-            it = (row.X for row in xport.reading.NamedTupleReader(f))
-            for value in [float(e) for e in range(-1000, 1001)]:
-                assert value == next(it)
-            for value in [math.pi ** e for e in range(-30, 31)]:
-                self.assertAlmostEqual(value, next(it), places=30)
-            for value in [-math.pi ** e for e in range(-30, 31)]:
-                self.assertAlmostEqual(value, next(it), places=30)
-
-
-
-class TestMultipleColumnsDataset(unittest.TestCase):
-
-
-    def test_header(self):
-        with open('test/data/multi.xpt', 'rb') as f:
-            reader = xport.reading.Reader(f)
-            x, y = reader._variables
-
-            assert reader.fields == ('X', 'Y')
-
-            assert x.name == 'X'
-            assert x.numeric == False
-            assert x.position == 0
-            assert x.size == 10
-
-            assert y.name == 'Y'
-            assert y.numeric == True
-            assert y.position == 10
-            assert y.size == 8
-
-
-    def test_length(self):
-        with open('test/data/multi.xpt', 'rb') as f:
-            assert len(list(xport.reading.Reader(f))) == 20
-
-
-    def test_values(self):
-        strings = '''
-            This is one time where television really fails to capture
-            the true excitement of a large squirrel predicting the weather.
-            '''.split()
-        with open('test/data/multi.xpt', 'rb') as f:
-            for (i, s), (x, y) in zip(enumerate(strings, 1), xport.reading.Reader(f)):
-                assert (x, y) == (s, i)
-
-
-class TestIEEEtoIBM(unittest.TestCase):
-
-    def roundtrip(self, n):
-        ibm = xport.writing.ieee_to_ibm(n)
-        ieee = xport.reading.ibm_to_ieee(ibm)
-        return round(ieee, 9)
-
-    def test_overflow(self):
-        with self.assertRaises(xport.writing.Overflow):
-            xport.writing.ieee_to_ibm(16 ** 63)
-
-    def test_underflow(self):
-        with self.assertRaises(xport.writing.Underflow):
-            xport.writing.ieee_to_ibm(16 ** -66)
-
-    def test_nan(self):
-        n = float('nan')
-        self.assertTrue(math.isnan(self.roundtrip(n)))
-
-    def test_zero(self):
-        self.assertEqual(0, self.roundtrip(0))
-
-    def test_small_magnitude_integers(self):
-        for i in range(-1000, 1000):
-            self.assertEqual(i, self.roundtrip(i))
-
-    def test_small_magnitude_floats(self):
-        for i in range(-10, 10):
-            i /= 1000
-            self.assertEqual(i, self.roundtrip(i))
-
-    def test_large_magnitude_floats(self):
-        n = int(1e9)
-        for i in range(n, n + 100):
-            self.assertEqual(i, self.roundtrip(i))
-
-    def test_large_magnitude_floats_with_fraction(self):
-        offset = 1e9
-        for i in range(100):
-            i /= 1e9
-            x = i + offset
-            self.assertEqual(x, self.roundtrip(x))
-
-    def test_very_small_magnitude_floats(self):
-        for i in range(-10, 10):
-            i /= 1e6
-            self.assertEqual(i, self.roundtrip(i))
-
-
-
-class TestFromToColumns(unittest.TestCase):
-
-    def roundtrip(self, mapping):
+    def test_from_columns(self, library):
+        ds = next(iter(library.values()))
+        mapping = {k: v for k, v in ds.items()}
         fp = BytesIO()
-        xport.writing.from_columns(mapping, fp)
+        with pytest.warns(DeprecationWarning):
+            xport.from_columns(mapping, fp)
         fp.seek(0)
-        duplicate = xport.reading.to_columns(fp)
-        for label, column in mapping.items():
-            for a, b in zip(column, duplicate[label]):
-                self.assertEqual(a, b)
+        result = next(iter(xport.v56.load(fp).values()))
+        assert (result == ds).all(axis=None)
 
-    def test_roundtrip_dict(self):
-        columns = {'whole': list(range(10)),
-                   'fraction': [i ** -0.5 for i in range(1, 11)],
-                   'letters': list(string.ascii_letters[:10]),
-                   'words': '''apple banana cantaloupe domino elephant
-                               frog guantanamo hooli igloo jarjar
-                            '''.split()}
-        self.roundtrip(columns)
-
-
-
-class TestDumpRows(unittest.TestCase):
-
-    def roundtrip(self, rows):
+    def test_from_rows(self, library):
+        ds = next(iter(library.values()))
+        rows = list(ds.itertuples(index=None, name=None))
         fp = BytesIO()
-        xport.writing.from_rows(rows, fp)
+        with pytest.warns(DeprecationWarning):
+            xport.from_rows(rows, fp)
         fp.seek(0)
-        duplicate = xport.reading.to_rows(fp)
-        self.assertEqual(rows, duplicate)
+        result = next(iter(xport.v56.load(fp).values()))
+        assert (result.values == ds.values).all(axis=None)
 
-    def test_roundtrip_tuples(self):
-        rows = [('life', 1),
-                ('universe', 3.14),
-                ('everything', 42)]
-        self.roundtrip(rows)
-
-    def test_rows_as_namedtuple(self):
-        Row = namedtuple('Row', 's n')
-        rows = [Row(s='life', n=1.0),
-                Row(s='universe', n=3.14),
-                Row(s='everything', n=42.0)]
-        self.roundtrip(rows)
-
-    def test_rows_as_ordered_dict(self):
-        rows = [OrderedDict([('s', 'life'), ('n', 1.0)]),
-                OrderedDict([('s', 'universe'), ('n', 3.14)]),
-                OrderedDict([('s', 'everything'), ('n', 42.0)])]
+    def test_from_dataframe(self, library):
+        ds = next(iter(library.values()))
         fp = BytesIO()
-        xport.writing.from_rows(rows, fp)
+        with pytest.warns(DeprecationWarning):
+            xport.from_dataframe(ds, fp)
         fp.seek(0)
-        dup = list(xport.reading.DictReader(fp))
-        self.assertEqual(rows, dup)
+        result = next(iter(xport.v56.load(fp).values()))
+        assert (result == ds).all(axis=None)
 
+    def test_to_rows(self, library, library_bytestring):
+        ds = next(iter(library.values()))
+        fp = BytesIO(library_bytestring)
+        with pytest.warns(DeprecationWarning):
+            result = xport.to_rows(fp)
+        df = pd.DataFrame(result)
+        assert (df.values == ds.values).all(axis=None)
 
+    def test_to_columns(self, library, library_bytestring):
+        ds = next(iter(library.values()))
+        fp = BytesIO(library_bytestring)
+        with pytest.warns(DeprecationWarning):
+            result = xport.to_columns(fp)
+        df = pd.DataFrame(result)
+        assert (df == ds).all(axis=None)
 
-if __name__ == '__main__':
-    unittest.main()
+    def test_to_numpy(self, library, library_bytestring):
+        ds = next(iter(library.values()))
+        fp = BytesIO(library_bytestring)
+        with pytest.warns(DeprecationWarning):
+            result = xport.to_numpy(fp)
+        assert (result == ds.values).all(axis=None)
 
-
+    def test_to_dataframe(self, library, library_bytestring):
+        ds = next(iter(library.values()))
+        fp = BytesIO(library_bytestring)
+        with pytest.warns(DeprecationWarning):
+            result = xport.to_dataframe(fp)
+        assert (result == ds).all(axis=None)

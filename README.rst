@@ -1,9 +1,16 @@
-========
-Xport
-========
+########################################################################
+  Xport
+########################################################################
 
-Python reader for SAS XPORT data transport files (``*.xpt``).
+.. sphinx-page-start
 
+Read and write SAS Transport files (``*.xpt``).
+
+SAS uses a handful of archaic file formats: XPORT/XPT, CPORT, SAS7BDAT.
+If someone publishes their data in one of those formats, this Python
+package will help you convert the data into a more useful format.  If
+someone, like the FDA, asks you for an XPT file, this package can write
+it for you.
 
 
 What's it for?
@@ -23,7 +30,7 @@ This module *has not yet been updated* to work with the new version.
 However, if you're using SAS v8+, you're probably not using XPT
 format. The changes to the format appear to be trivial changes to the
 metadata, but this module's current error-checking will raise a
-``ParseError``. If you'd like an update for v8, please let me know by
+``ValueError``. If you'd like an update for v8, please let me know by
 `submitting an issue`_.
 
 .. _United States government agencies: https://www.google.com/search?q=site:.gov+xpt+file
@@ -36,157 +43,99 @@ metadata, but this module's current error-checking will raise a
 
 
 
+Installation
+============
+
+This project requires Python v3.7+.  Grab the latest stable version from
+PyPI.
+
+.. code:: bash
+
+    $ python -m pip install --upgrade xport
+
+
+
 Reading XPT
 ===========
 
-This module mimics the ``csv`` module of the standard library,
-providing ``Reader`` and ``DictReader`` classes. Note that
-``xport.Reader`` is capitalized, unlike ``csv.reader``.
+This module follows the common pattern of providing ``load`` and
+``loads`` functions for reading data from a SAS file format.
 
 .. code:: python
 
-    with open('example.xpt', 'rb') as f:
-        for row in xport.Reader(f):
-            print row
-
-
-
-Values in the row will be either a unicode string or a float, as
-specified by the XPT file metadata. Note that since XPT files are in
-an unusual binary format, you should open them using mode ``'rb'``.
-For convenience, you can also use the ``NamedTupleReader`` to get each
-row as a namedtuple, with an attribute for each field in the dataset.
-
-
-
-The ``Reader`` object has a handful of metadata attributes:
-
-* ``Reader.fields`` -- Names of the fields in each observation.
-
-* ``Reader.version`` -- SAS version number used to create the XPT file.
-
-* ``Reader.os`` -- Operating system used to create the XPT file.
-
-* ``Reader.created`` -- Date and time that the XPT file was created.
-
-* ``Reader.modified`` -- Date and time that the XPT file was last modified.
-
-
-
-The module also provides a handful of utility functions for reading
-the whole XPT file and loading the rows into a Python data structure.
-The ``to_rows`` function will simply return a list of rows. The
-``to_columns`` function will return the data as columns rather than
-rows. The columns will be an ``OrderedDict`` mapping the column labels
-as strings to the column values as lists of either strings or floats.
-For convenient conversion to a `NumPy`_ array or `Pandas`_ dataframe,
-you can use ``to_numpy`` and ``to_dataframe``.
-
-.. code:: python
+    import xport.v56
 
     with open('example.xpt', 'rb') as f:
-        columns = xport.to_columns(f)
+        library = xport.v56.load(f)
 
-    with open('example.xpt', 'rb') as f:
-        a = xport.to_numpy(f)
 
-    with open('example.xpt', 'rb') as f:
-        df = xport.to_dataframe(f)
+The XPT decoders, ``xport.load`` and ``xport.loads``, return a
+``xport.Library``, which is a mapping (``dict``-like) of
+``xport.Dataset``s.  The ``xport.Dataset``` is a subclass of
+``pandas.DataFrame`` with SAS metadata attributes (name, label, etc.).
+The columns of a ``xport.Dataset`` are ``xport.Variable`` types, which
+are subclasses of ``pandas.Series`` with SAS metadata (name, label,
+format, etc.).
 
-.. _NumPy: http://www.numpy.org/
+If you're not familiar with `Pandas`_'s dataframes, it's easy to think
+of them as a dictionary of columns, mapping variable names to variable
+data.
+
+The SAS Transport (XPORT) format only supports two kinds of data.  Each
+value is either numeric or character, so ``xport.load`` decodes the
+values as either ``str`` or ``float``.
+
+Note that since XPT files are in an unusual binary format, you should
+open them using mode ``'rb'``.
 
 .. _Pandas: http://pandas.pydata.org/
 
 
+You can also use the ``xport`` module as a command-line tool to convert
+an XPT file to CSV (comma-separated values) file.  The ``xport``
+executable is a friendly alias for ``python -m xport``.
 
-You can also use the ``xport`` module as a command-line tool to convert an XPT
-file to CSV (comma-separated values) file.::
+.. code:: bash
 
-    $ python -m xport example.xpt > example.csv
-
-
-
-If you want to access specific records, you should gather the rows in
-a list or use one of ``itertools`` recipes_ for quickly consuming and
-throwing away unncessary elements.
-
-.. code:: python
-
-    # Collect all the records in a list for random access
-    rows = list(xport.Reader(f))
-
-    # Select only record 42
-    from itertools import islice
-    row = next(islice(xport.Reader(f), 42, None))
-
-    # Select only the last 42 records
-    from collections import deque
-    rows = deque(xport.Reader(f), maxlen=42)
-
-.. _recipes: https://docs.python.org/2/library/itertools.html#recipes
-
+    $ xport example.xpt > example.csv
 
 
 Writing XPT
 ===========
 
-The ``from_columns`` function will write an XPT file from a mapping of
-labels (as string) to columns (as iterable) or an iterable of (label,
-column) pairs.
+The ``xport`` package follows the common pattern of providing ``dump``
+and ``dumps`` functions for writing data to a SAS file format.
 
 .. code:: python
 
-    # a mapping of labels to columns
-    mapping = {'numbers': [1, 3.14, 42],
-               'text': ['life', 'universe', 'everything']}
+    import xport
+    import xport.v56
 
-    with open('answers.xpt', 'wb') as f:
-        xport.from_columns(mapping, f)
-
-
-
-Column labels are restricted to 40 characters. Column names are
-restricted to 8 characters and will be automatically created based on
-the column label -- the first 8 characters, non-alphabet characters
-replaced with underscores, padded to 8 characters if necessary. All
-text strings, including column labels, will be converted to bytes
-using the ISO-8859-1 encoding.
-
-Unfortunately, writing XPT files cannot cleanly mimic the ``csv``
-module, because we must examine all rows before writing any rows to
-correctly write the XPT file headers.
-
-
-
-The ``from_rows`` function expects an iterable of iterables, like a
-list of tuples. In this case, the column labels have not been
-specified and will automatically be assigned as 'x0', 'x1', 'x2', ...,
-'xM'.
-
-.. code:: python
-
-    rows = [('a', 1), ('b', 2)]
-
+    ds = xport.Dataset()
     with open('example.xpt', 'wb') as f:
-        xport.from_rows(rows, f)
+        xport.v56.dump(ds, f)
 
 
-
-To specify the column labels for ``from_rows``, each row can be a
-mapping (such as a ``dict``) of the column labels to that row's
-values. Each row should have the same keys. Passing in rows as
-namedtuples, or any instance of a ``tuple`` that has a ``._fields``
-attribute, will set the column labels to the attribute names of the
-first row.
+Because the ``xport.Dataset`` is an extension of ``pandas.DataFrame``,
+you can create datasets in a variety of ways, converting easily from a
+dataframe to a dataset.
 
 .. code:: python
 
-    rows = [{'letters': 'a', 'numbers': 1},
-            {'letters': 'b', 'numbers': 2}]
+    import pandas as pd
+    import xport
+    import xport.v56
 
+    df = pandas.DataFrame({'NUMBERS': [1, 2], 'TEXT': ['a', 'b']})
+    ds = xport.Dataset(df, name='MAX8CHRS', label='Up to 40!')
     with open('example.xpt', 'wb') as f:
-        xport.from_rows(rows, f)
+        xport.v56.dump(ds, f)
 
+
+SAS Transport v5 restricts variable names to 8 characters (with a
+strange preference for uppercase) and labels to 40 characters.  If you
+want the relative comfort of SAS Transport v8's limit of 246 characters,
+please `make an enhancement request`_.
 
 
 Feature requests
@@ -195,23 +144,31 @@ Feature requests
 I'm happy to fix bugs, improve the interface, or make the module
 faster. Just `submit an issue`_ and I'll take a look.
 
+.. _make an enhancement request: https://github.com/selik/xport/issues/new
 .. _submit an issue: https://github.com/selik/xport/issues/new
 
 
+Contributing
+============
 
-Recent changes
-==============
+This project is configured to be developed in a Conda environment.
 
-* Switched from ``load``/``dump`` with mode flags to ``to_rows``,
-  ``to_columns``, ``from_rows`` and ``from_columns``.
+.. code:: bash
 
-* ``Reader`` yields regular tuples, not namedtuples.
+    $ git clone git@github.com:selik/xport.git
+    $ cd xport
+    $ make install          # Install into a Conda environment
+    $ conda activate xport  # Activate the Conda environment
+    $ make install-html     # Build the docs website
 
 
 Authors
 =======
 
 Original version by `Jack Cushman`_, 2012.
-Major revision by Michael Selik, 2016.
+
+Major revisions by `Michael Selik`_, 2016 and 2020.
 
 .. _Jack Cushman: https://github.com/jcushman
+
+.. _Michael Selik: https://github.com/selik
