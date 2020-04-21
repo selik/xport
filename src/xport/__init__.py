@@ -681,6 +681,7 @@ def from_rows(iterable, fp):
     using the ISO-8859-1 encoding.
     """
     df = pd.DataFrame(iterable)
+    df.columns = [f'x{i:02d}' for i in df]
     return from_dataframe(df, fp)
 
 
@@ -706,7 +707,7 @@ def to_rows(fp):
     parsed from the XPT metadata.
     """
     df = to_dataframe(fp)
-    return list(df.itertuples(index=False, name=False))
+    return list(df.itertuples(index=False, name=None))
 
 
 def to_columns(fp):
@@ -744,7 +745,7 @@ def to_dataframe(fp):
     from xport.v56 import load
     warnings.warn('Please use ``xport.v56.load`` in the future', DeprecationWarning)
     library = load(fp)
-    dataset = next(library.values())
+    dataset = next(iter(library.values()))
     return dataset
 
 

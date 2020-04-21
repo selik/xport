@@ -2,6 +2,9 @@
 Tests for the core interface.
 """
 
+# Standard Library
+from io import BytesIO
+
 # Community Packages
 import pandas as pd
 import pytest
@@ -249,8 +252,61 @@ class TestLegacy:
 
     # Gotta stay backwards compatible.  The FDA has written docs.
 
-    def test_from_columns(self):
-        pass
+    def test_from_columns(self, library):
+        ds = next(iter(library.values()))
+        mapping = {k: v for k, v in ds.items()}
+        fp = BytesIO()
+        with pytest.warns(DeprecationWarning):
+            xport.from_columns(mapping, fp)
+        fp.seek(0)
+        result = next(iter(xport.v56.load(fp).values()))
+        assert (result == ds).all(axis=None)
 
-    def test_from_rows(self):
-        pass
+    def test_from_rows(self, library):
+        ds = next(iter(library.values()))
+        rows = list(ds.itertuples(index=None, name=None))
+        fp = BytesIO()
+        with pytest.warns(DeprecationWarning):
+            xport.from_rows(rows, fp)
+        fp.seek(0)
+        result = next(iter(xport.v56.load(fp).values()))
+        assert (result.values == ds.values).all(axis=None)
+
+    def test_from_dataframe(self, library):
+        ds = next(iter(library.values()))
+        fp = BytesIO()
+        with pytest.warns(DeprecationWarning):
+            xport.from_dataframe(ds, fp)
+        fp.seek(0)
+        result = next(iter(xport.v56.load(fp).values()))
+        assert (result == ds).all(axis=None)
+
+    def test_to_rows(self, library, library_bytestring):
+        ds = next(iter(library.values()))
+        fp = BytesIO(library_bytestring)
+        with pytest.warns(DeprecationWarning):
+            result = xport.to_rows(fp)
+        df = pd.DataFrame(result)
+        assert (df.values == ds.values).all(axis=None)
+
+    def test_to_columns(self, library, library_bytestring):
+        ds = next(iter(library.values()))
+        fp = BytesIO(library_bytestring)
+        with pytest.warns(DeprecationWarning):
+            result = xport.to_columns(fp)
+        df = pd.DataFrame(result)
+        assert (df == ds).all(axis=None)
+
+    def test_to_numpy(self, library, library_bytestring):
+        ds = next(iter(library.values()))
+        fp = BytesIO(library_bytestring)
+        with pytest.warns(DeprecationWarning):
+            result = xport.to_numpy(fp)
+        assert (result == ds.values).all(axis=None)
+
+    def test_to_dataframe(self, library, library_bytestring):
+        ds = next(iter(library.values()))
+        fp = BytesIO(library_bytestring)
+        with pytest.warns(DeprecationWarning):
+            result = xport.to_dataframe(fp)
+        assert (result == ds).all(axis=None)
