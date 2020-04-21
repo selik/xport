@@ -49,7 +49,7 @@ dvi:
 pdf:
 ps:
 
-dist: conda-update 			# Build a "wheel" for distribution
+dist:		 			# Build a "wheel" for distribution
 	$(conda_activate) && python setup.py sdist bdist_wheel
 
 check: conda-update 			# Verify that everything is working
@@ -62,9 +62,7 @@ check: conda-update 			# Verify that everything is working
 git-hooks:
 	git config core.hookspath .githooks
 
-pypi: clean dist			# Upload to PyPI
-	$(MAKE) clean
-	$(MAKE) dist
+pypi: clean check dist			# Upload to PyPI
 	twine upload --repository pypi --config-file ~/.pypirc dist/*
 
 
