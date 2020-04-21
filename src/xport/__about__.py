@@ -32,7 +32,7 @@ class Version(namedtuple('Version', 'major minor patch')):
         return Version(*map(int, s.split('.')))
 
     def __str__(self):
-        return f'v{".".join(map(str, self))}'
+        return '.'.join(map(str, self))
 
 
 project = pathlib.Path(__file__).parent.name

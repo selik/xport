@@ -6,11 +6,18 @@ Tests for the core CLI.
 # Standard Library
 import re
 import subprocess
+from io import StringIO
+
+# Community Packages
+import pandas as pd
+
+# Xport Modules
+import xport
 
 
 def test_help():
     """
-    Verify that we can show usage help.
+    Verify we can show usage help.
     """
     cmd = 'python -m xport --help'
     argv = cmd.split()
@@ -20,21 +27,34 @@ def test_help():
 
 def test_version():
     """
-    Verify that we can show the verison.
+    Verify we can show the verison.
     """
     cmd = 'python -m xport --version'
     argv = cmd.split()
     proc = subprocess.run(argv, text=True, capture_output=True)
     line, = proc.stdout.splitlines()
-    assert re.match(r'xport v\S+', line)
+    assert re.match(r'xport, version \S+', line)
 
 
 def test_executable():
     """
-    Verify that the command line executable installed correctly.
+    Verify the command line executable installed correctly.
     """
     executable = 'xport --version'.split()
     imported = 'python -m xport --version'.split()
     proc1 = subprocess.run(executable, text=True, capture_output=True)
     proc2 = subprocess.run(imported, text=True, capture_output=True)
     assert proc1.stdout == proc2.stdout
+
+
+def test_decode(library, library_bytestring):
+    """
+    Verify the command line executable can decode a library.
+    """
+    cmd = 'python -m xport -'
+    argv = cmd.split()
+    proc = subprocess.run(argv, capture_output=True, input=library_bytestring)
+    fp = StringIO(proc.stdout.decode())
+    df = pd.read_csv(fp)
+    ds = xport.Dataset(df)
+    assert (ds == next(iter(library.values()))).all(axis=None)

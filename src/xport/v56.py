@@ -533,6 +533,9 @@ class Member(xport.Dataset):
         public = (name.lstrip('_') for name in cls._metadata)
         kwds = {name: getattr(header, name) for name in public}
         self = cls(**kwds)
+        # TODO: This is terribly inefficient, due to Pandas' awkwardness.
+        #       Each call to setitem causes the copying of metadata for
+        #       *EVERY* column, making this a factorial-time copy.
         for namestr in header.values():
             self[namestr.name] = xport.Variable(
                 dtype='float' if namestr.vtype == xport.VariableType.NUMERIC else 'string',
