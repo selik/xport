@@ -721,10 +721,14 @@ def strptime(timestring):
     return datetime.strptime(text, '%d%b%y:%H:%M:%S')
 
 
-def strftime(dt):
+def strftime(dt, minimum=datetime(1900, 1, 1), maximum=datetime(2100, 1, 1)):
     """
     Convert a datetime to an XPT format byte string.
     """
+    if dt < minimum:
+        raise ValueError(f'y2k never left! {dt} is in year {dt:%y}')
+    if dt >= maximum:
+        raise ValueError(f'y2k never left! {dt} is in year {dt:%y}')
     return dt.strftime('%d%b%y:%H:%M:%S').upper().encode('ascii')
 
 

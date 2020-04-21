@@ -335,6 +335,15 @@ class TestEncode:
                     library = xport.Library(xport.Dataset({'a': [bad]}))
                     xport.v56.dumps(library)
 
+    def test_invalid_values(self):
+        invalid = [
+            '\N{snowman}',
+        ]
+        for bad in invalid:
+            with pytest.raises(ValueError):
+                library = xport.Library(xport.Dataset({'a': [bad]}))
+                xport.v56.dumps(library)
+
     def test_dumps_name_and_label_length_validation(self):
         """
         Verify variable and dataset name and label length.
@@ -353,127 +362,31 @@ class TestEncode:
             with pytest.raises(ValueError):
                 xport.v56.dumps(bad_metadata)
 
+    def test_troublesome_text(self):
+        """
+        Some text patterns have been trouble in the past.
+        """
+        trouble = xport.Variable(["'<>"], dtype='string')
+        dataset = xport.Dataset({'a': trouble}, name='trouble')
+        library = xport.Library(dataset)
+        assert self.dump_and_load(library) == library
 
-# def test_troublesome_text():
-#     """
-#     Some text patterns have been trouble in the past.
-#     """
-#     trouble = [
-#         "'<>",
-#     ]
-#     for issue in trouble:
-#         b = xport.v56.dumps(
-#             xport.v56.Library(
-#                 members={
-#                     'x': xport.v56.Member(observations=pd.DataFrame({'a': trouble})),
-#                 }
-#             )
-#         )
-#         dataset = xport.v56.loads(b)
-#         assert (dataset['x']['a'] == issue).all()
+    def test_dataset_created(self):
+        invalid = datetime(1800, 1, 1)
+        ds = xport.Dataset(created=invalid)
+        assert ds.created == invalid
+        with pytest.raises(ValueError):
+            xport.v56.dumps(ds)
+        with pytest.raises((TypeError, AttributeError)):
+            ds = xport.Dataset(created='2000-Jan-01')
+            xport.v56.dumps(ds)
 
-# def test_float_round_trip():
-#     """
-#     Verify a variety of random floats convert correctly.
-#     """
-#     np.random.seed(42)
-#     n = 10
-#     df = pd.DataFrame({
-#         'tiny': [np.random.uniform(-1e-6, 1e6) for i in range(n)],
-#         'large': [np.random.uniform(16**61, 16**62) for i in range(n)],
-#     })
-#     library = xport.v56.Library(members={
-#         'x': xport.v56.Member(observations=df),
-#     })
-#     b = xport.v56.dumps(library)
-#     approx = xport.v56.loads(b)
-#     for key, originals in library['x'].items():
-#         assert np.isclose(originals, approx['x'][key]).all()
-
-# @pytest.mark.skip('not implemented')
-# def test_dumps_with_name_labels_and_formats(dataset, bytestring):
-#     """
-#     Verify writing dataset columns, name, labels, and formats.
-#     """
-#     assert bytestring == xport.v56.dumps(
-#         columns=dict(dataset),
-#         labels=dataset.labels,
-#         formats=dataset.formats,
-#         dataset_name=dataset.dataset_name,
-#         dataset_label=dataset.dataset_label,
-#     )
-
-# def test_variable_numbers(self):
-#     """
-#     Verify enforcement of Variable numbers matching Dataset order.
-#     """
-#     v = xport.Variable(name='test_variable_numbers', dtype='float')
-#     v.sas_variable_number = 10
-#     with pytest.warns(UserWarning, match=r'SAS variable numbers'):
-#         xport.Dataset({v.sas_name: v})
-
-# def test_variable_positions(self):
-#     """
-#     Verify enforcement of Variable positions matching Dataset order.
-#     """
-#     v = xport.Variable(name='test_variable_positions', dtype='float')
-#     v.sas_variable_position = 10
-#     with pytest.warns(UserWarning, match=r'SAS variable positions'):
-#         xport.Dataset({v.sas_name: v})
-
-# def test_sas_name(self):
-#     df = xport.Dataset()
-#     df.sas_name = value = 'EXAMPLE1'
-#     assert df.sas_name == value
-#     with pytest.raises(ValueError):
-#         df.sas_name = 'a' * 9
-#     with pytest.raises(UnicodeEncodeError):
-#         df.sas_name = '\N{snowman}'
-#     with pytest.raises((TypeError, AttributeError)):
-#         df.sas_name = 0
-
-# def test_sas_label(self):
-#     df = xport.Dataset()
-#     df.sas_label = value = 'Example label'
-#     assert df.sas_label == value
-#     with pytest.raises(ValueError):
-#         df.sas_label = 'a' * 41
-
-# def test_sas_dataset_type(self):
-#     df = xport.Dataset()
-#     df.sas_dataset_type = value = 'DATA'
-#     assert df.sas_dataset_type == value
-#     with pytest.raises(ValueError):
-#         df.sas_dataset_type = 'a' * 9
-
-# def test_sas_dataset_created(self):
-#     df = xport.Dataset()
-#     df.sas_dataset_created = value = datetime.now()
-#     assert df.sas_dataset_created == value
-#     with pytest.raises(ValueError):
-#         df.sas_dataset_created = datetime(1800, 1, 1)
-#     with pytest.raises((TypeError, AttributeError)):
-#         df.sas_dataset_created = '2000-Jan-01'
-
-# def test_sas_dataset_modified(self):
-#     df = xport.Dataset()
-#     df.sas_dataset_modified = value = datetime(1920, 1, 1)
-#     assert df.sas_dataset_modified == value
-#     with pytest.raises(ValueError):
-#         df.sas_dataset_modified = datetime(2100, 1, 1)
-#     with pytest.raises(TypeError):
-#         df.sas_dataset_modified = 1
-
-# def test_sas_os(self):
-#     df = xport.Dataset()
-#     df.sas_os = value = 'MAC10.15'
-#     assert df.sas_os == value
-#     with pytest.raises(ValueError):
-#         df.sas_os = 'a' * 9
-
-# def test_sas_version(self):
-#     df = xport.Dataset()
-#     df.sas_os = value = '9.3'
-#     assert df.sas_os == value
-#     with pytest.raises(ValueError):
-#         df.sas_version = 'a' * 9
+    def test_dataset_modified(self):
+        invalid = datetime(2100, 1, 1)
+        ds = xport.Dataset(modified=invalid)
+        assert ds.modified == invalid
+        with pytest.raises(ValueError):
+            xport.v56.dumps(ds)
+        with pytest.raises((TypeError, AttributeError)):
+            ds = xport.Dataset(modified=1)
+            xport.v56.dumps(ds)
