@@ -138,6 +138,39 @@ want the relative comfort of SAS Transport v8's limit of 246 characters,
 please `make an enhancement request`_.
 
 
+It's likely that most people will be using Pandas_ dataframes for the
+bulk of their analysis work, and will want to convert to XPT at the
+very end of their process.
+
+.. code:: python
+
+    import pandas as pd
+    import xport
+    import xport.v56
+
+    df = pandas.DataFrame({
+        'alpha': [10, 20, 30],
+        'beta': ['x', 'y', 'z'],
+    })
+
+    ...  # Analysis work ...
+
+    ds = xport.Dataset(df, name='DATA', label='Wonderful data')
+    for k, v in ds.items():
+        v.label = k               # Use the column name as SAS label
+        v.name = k.upper()[:8]    # SAS names are limited to 8 chars
+        if v.dtype == 'object':
+            v.format = '$CHAR20.' # Variables will parse SAS formats
+        else:
+            v.format = '10.2'
+
+    library = xport.Library({'DATA': ds})
+    # Libraries can have multiple datasets.
+
+    with open('example.xpt', 'wb') as f:
+        xport.v56.dump(library, f)
+
+
 Feature requests
 ================
 
