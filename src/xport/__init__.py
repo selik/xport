@@ -569,9 +569,11 @@ class Library(MutableMapping):
         self.sas_os = sas_os
         self.sas_version = sas_version
 
+        # Convert a single dataset or dataframe to a collection of them.
+        if isinstance(members, pd.DataFrame):
+            members = {getattr(members, 'name', None): members}
+
         self._members = {}
-        if isinstance(members, Dataset):
-            members = {members.name: members}
         if isinstance(members, Library):
             self._members = members._members
             self.created = members.created

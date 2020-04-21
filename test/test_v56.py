@@ -7,6 +7,7 @@ import math
 from datetime import datetime
 
 # Community Packages
+import pandas as pd
 import pytest
 
 # Xport Modules
@@ -237,6 +238,11 @@ class TestLibrary:
         empty = xport.v56.Library(xport.v56.Member())
         bytestring = bytes(empty)
         xport.v56.Library.from_bytes(bytestring)
+
+    def test_dataframe(self):
+        lib = xport.Library(pd.DataFrame({'a': [1]}))
+        result = xport.v56.loads(xport.v56.dumps(lib))
+        assert (result[''] == lib[None]).all(axis=None)
 
     def test_no_observations(self):
         """

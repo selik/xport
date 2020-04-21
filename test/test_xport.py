@@ -244,6 +244,10 @@ class TestLibrary:
         with pytest.warns(UserWarning, match=r'More than one dataset named'):
             xport.Library([xport.Dataset(), xport.Dataset()])
 
+    def test_create_from_dataframe(self):
+        lib = xport.Library(pd.DataFrame())
+        assert None in lib
+
 
 class TestLegacy:
     """
