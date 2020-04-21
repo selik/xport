@@ -303,7 +303,9 @@ class MemberHeader(Mapping):
         self.namestrs = {ns.name: ns for ns in namestrs}
 
     def __repr__(self):
-        """REPL-format."""
+        """
+        Format for the REPL.
+        """
         metadata = (name.strip('_') for name in xport.Dataset._metadata)
         metadata = {name: getattr(self, name) for name in metadata}
         metadata = (f'{k.title()}: {v}' for k, v in metadata.items() if v is not None)
@@ -317,18 +319,20 @@ class MemberHeader(Mapping):
 
     def __iter__(self):
         """
-        Iterator of variable names.
+        Get an iterator of variable names.
         """
         return iter(self.namestrs)
 
     def __len__(self):
         """
-        Number of variables/namestrs.
+        Get the number of variables/namestrs.
         """
         return len(self.namestrs)
 
     def __eq__(self, other):
-        """Equality."""
+        """
+        Check equality.
+        """
         if not isinstance(other, MemberHeader):
             raise TypeError(f"Can't compare {type(self).__name__} with {type(other).__name__}")
         metadata = (name.strip('_') for name in xport.Dataset._metadata)
@@ -483,6 +487,10 @@ class Observations(Iterator):
             stride = sum(sizes)
             if stride == 0:
                 return
+            # TODO: The SAS Transport v5 specification says the sentinel
+            #       character is b' ', but people report b'\x00' is used
+            #       in some files.  Unfortunately, that would make rows
+            #       with all zeros indistiguishable from the sentinel.
             sentinel = b' ' * stride
             mview = memoryview(bytestring)
             for i in range(0, len(mview), stride):
@@ -496,7 +504,7 @@ class Observations(Iterator):
 
     def to_bytes(self):
         """
-        Iterator of XPORT-encoded observations.
+        Get an iterator of XPORT-encoded observations.
         """
         fmt = ''.join(f'{namestr.length}s' for namestr in self.header.values())
         converters = []
@@ -861,45 +869,60 @@ def ieee_to_ibm(ieee):
 
 def load(fp):
     """
-    Deserialize a SAS V5 transport file format document::
+    Deserialize a SAS dataset library from a SAS Transport v5 (XPT) file.
 
-        with open('example.xpt', 'rb') as f:
-            data = load(f)
+        >>> with open('test/data/example.xpt', 'rb') as f:
+        ...     library = load(f)
     """
     return loads(fp.read())
 
 
 def loads(bytestring):
     """
-    Deserialize a SAS V5 transport file format document from a string::
+    Deserialize a SAS dataset library from an XPORT-format string.
 
-        with open('example.xpt', 'rb') as f:
-            bytestring = f.read()
-        data = loads(bytestring)
+        >>> with open('test/data/example.xpt', 'rb') as f:
+        ...     bytestring = f.read()
+        >>> library = loads(bytestring)
     """
     return Library.from_bytes(bytestring)
 
 
 def dump(library, fp):
     """
-    Serialize a SAS V5 transport file format document::
+    Serialize a SAS dataset library to a SAS Transport v5 (XPORT) file.
 
-        with open('example.xpt', 'wb') as f:
-            dump(library, f)
+        >>> library = Library()
+        >>> with open('test/data/doctest.xpt', 'wb') as f:
+        ...     dump(library, f)
+
+    The input ``library`` can be either an ``xport.Library``, an
+    ``xport.Dataset`` collection, or a single ``pandas.DataFrame``.
+    An ``xport.Dataset`` is preferable, because that can be assigned a
+    name, which SAS expects.
+
+        >>> ds = xport.Dataset(name='EMPTY')
+        >>> with open('test/data/doctest.xpt', 'wb') as f:
+        ...     dump(ds, f)
+
     """
     fp.write(dumps(library))
 
 
 def dumps(library):
     """
-    Serialize a SAS V5 transport file format document to a string::
+    Serialize a SAS dataset library to a string in XPORT-format.
 
-        data = {
-            'a': [1, 2],
-            'b': [3, 4],
-        }
-        bytestring = dumps(data)
-        with open('example.xpt', 'wb') as f:
-            f.write(bytestring)
+        >>> library = Library()
+        >>> bytestring = dumps(library)
+
+    The input ``library`` can be either an ``xport.Library``, an
+    ``xport.Dataset`` collection, or a single ``pandas.DataFrame``.
+    An ``xport.Dataset`` is preferable, because that can be assigned a
+    name, which SAS expects.
+
+        >>> ds = xport.Dataset(name='EMPTY')
+        >>> bytestring = dumps(ds)
+
     """
     return bytes(Library(library))
