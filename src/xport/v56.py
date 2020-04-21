@@ -588,7 +588,6 @@ class Member(xport.Dataset):
             'O': 'string',
             'b': 'float',
             'i': 'float',
-            'f': 'float',
         }
         dtypes = self.dtypes.to_dict()
         conversions = {}

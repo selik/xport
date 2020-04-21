@@ -315,7 +315,7 @@ class TestEncode:
         ]
         for x in numerics:
             with pytest.warns(UserWarning, match=r'Converting column dtypes'):
-                library = xport.v56.Library({'A': xport.v56.Member({'x': [x]})})
+                library = xport.Library({'A': xport.Dataset({'x': [x]})})
                 output = self.dump_and_load(library)
                 assert output['A']['x'].dtype.name == 'float64'
                 assert output['A']['x'].iloc[0] == 1.0
@@ -332,33 +332,26 @@ class TestEncode:
         for bad in invalid:
             with pytest.warns(UserWarning, match=r'Converting column dtypes'):
                 with pytest.raises(TypeError):
-                    library = xport.v56.Library(xport.v56.Member({'a': [bad]}))
+                    library = xport.Library(xport.Dataset({'a': [bad]}))
                     xport.v56.dumps(library)
 
-    def test_dumps_name_and_label_length_validation():
+    def test_dumps_name_and_label_length_validation(self):
         """
         Verify variable and dataset name and label length.
         """
         # Names must be <= 8 characters.
         # Labels must be <= 40 characters.
         # SAS v8 Transport Files allow longer labels.
-        with pytest.raises(ValueError):
-            xport.v56.dumps(
-                xport.v56.Library(
-                    members={
-                        'x' * 9: xport.v56.Member(observations=pd.DataFrame({'a': []})),
-                    }
-                )
-            )
-        with pytest.raises(ValueError):
-            xport.v56.dumps(
-                xport.v56.Library(
-                    members={
-                        'x': xport.v56.Member(observations=pd.DataFrame({'a' * 9: []})),
-                    }
-                )
-            )
-        # TODO: Test label length error checking.
+        invalid = [
+            xport.Library(xport.Dataset(), sas_version='a' * 9),
+            xport.Library(xport.Dataset(name='a' * 9)),
+            xport.Library(xport.Dataset(label='a' * 41)),
+            xport.Library(xport.Dataset({'a' * 9: [1.0]})),
+            xport.Library(xport.Dataset({'a': xport.Variable([1.0], label='a' * 41)})),
+        ]
+        for bad_metadata in invalid:
+            with pytest.raises(ValueError):
+                xport.v56.dumps(bad_metadata)
 
 
 # def test_troublesome_text():
