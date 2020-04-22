@@ -260,6 +260,7 @@ class Variable(pd.Series):
         """
         Copy metadata from another Variable.
         """
+        LOG.debug(f'Copying metadata from {other}')
         if isinstance(other, Variable):
             for name in self._metadata:
                 value = getattr(self, name, None)
@@ -403,6 +404,7 @@ class Dataset(pd.DataFrame):
         """
         Copy metadata from a Dataset or mapping of Variables.
         """
+        LOG.debug(f'Copying metadata from {other}')
         if isinstance(other, Dataset):
             for name in self._metadata:
                 object.__setattr__(self, name, getattr(other, name, None))
