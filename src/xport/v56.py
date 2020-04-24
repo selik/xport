@@ -538,14 +538,8 @@ class Member(xport.Dataset):
         """
         Create an empty ``Member`` with metadata from a ``MemberHeader``.
         """
-        public = (name.lstrip('_') for name in cls._metadata)
-        kwds = {name: getattr(header, name) for name in public}
-        self = cls(**kwds)
-        # TODO: This is terribly inefficient, due to Pandas' awkwardness.
-        #       Each call to setitem causes the copying of metadata for
-        #       *EVERY* column, making this a factorial-time copy.
-        for namestr in header.values():
-            self[namestr.name] = xport.Variable(
+        variables = {
+            namestr.name: xport.Variable(
                 dtype='float' if namestr.vtype == xport.VariableType.NUMERIC else 'string',
                 name=namestr.name,
                 label=namestr.label,
@@ -554,6 +548,10 @@ class Member(xport.Dataset):
                 format=namestr.format,
                 informat=namestr.informat,
             )
+            for namestr in header.values()
+        }
+        public = (name.lstrip('_') for name in cls._metadata)
+        self = cls(variables, **{name: getattr(header, name) for name in public})
         return self
 
     @classmethod
