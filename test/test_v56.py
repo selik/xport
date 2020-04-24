@@ -211,7 +211,8 @@ class TestMember:
 
     def test_encode(self, dataset, dataset_bytestring):
         ds = xport.v56.Member(dataset)
-        assert bytes(ds) == dataset_bytestring
+        with pytest.warns(UserWarning, match=r'Converting column dtypes'):
+            assert bytes(ds) == dataset_bytestring
 
 
 class TestLibrary:
@@ -221,7 +222,8 @@ class TestLibrary:
         assert got == library
 
     def test_encode(self, library, library_bytestring):
-        assert bytes(xport.v56.Library(library)) == library_bytestring
+        with pytest.warns(UserWarning, match=r'Converting column dtypes'):
+            assert bytes(xport.v56.Library(library)) == library_bytestring
 
     def test_empty_library(self):
         """
@@ -241,14 +243,16 @@ class TestLibrary:
 
     def test_dataframe(self):
         lib = xport.Library(pd.DataFrame({'a': [1]}))
-        result = xport.v56.loads(xport.v56.dumps(lib))
+        with pytest.warns(UserWarning, match=r'Converting column dtypes'):
+            result = xport.v56.loads(xport.v56.dumps(lib))
         assert (result[''] == lib[None]).all(axis=None)
 
     def test_no_observations(self):
         """
         Verify dumps/loads of 1 member, 1 variable, 0 observations.
         """
-        library = xport.v56.Library({'x': xport.v56.Member({'a': []})})
+        with pytest.warns(UserWarning, match=r'Set dataset name'):
+            library = xport.v56.Library({'x': xport.v56.Member({'a': []})})
         bytestring = bytes(library)
         assert xport.v56.Library.from_bytes(bytestring)
 
@@ -346,9 +350,10 @@ class TestEncode:
             '\N{snowman}',
         ]
         for bad in invalid:
+            library = xport.Library(xport.Dataset({'a': [bad]}))
             with pytest.raises(ValueError):
-                library = xport.Library(xport.Dataset({'a': [bad]}))
-                xport.v56.dumps(library)
+                with pytest.warns(UserWarning, match=r'Converting column dtypes'):
+                    xport.v56.dumps(library)
 
     def test_dumps_name_and_label_length_validation(self):
         """
@@ -375,7 +380,8 @@ class TestEncode:
         trouble = xport.Variable(["'<>"], dtype='string')
         dataset = xport.Dataset({'a': trouble}, name='trouble')
         library = xport.Library(dataset)
-        assert self.dump_and_load(library) == library
+        with pytest.warns(UserWarning, match=r'Converting column dtypes'):
+            assert self.dump_and_load(library) == library
 
     def test_dataset_created(self):
         invalid = datetime(1800, 1, 1)
