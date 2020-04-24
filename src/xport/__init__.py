@@ -260,7 +260,7 @@ class Variable(pd.Series):
         """
         Copy metadata from another Variable.
         """
-        LOG.debug(f'Copying metadata from {other}')
+        # LOG.debug(f'Copying metadata from {other}')  # BUG: Causes infinite recursion!
         if isinstance(other, Variable):
             for name in self._metadata:
                 value = getattr(self, name, None)
@@ -470,7 +470,7 @@ class Dataset(pd.DataFrame):
         self.copy_metadata(data)
         for name, value in metadata.items():
             setattr(self, name, getattr(self, name, value))
-        LOG.debug(f'Initialized {self}')
+        # LOG.debug(f'Initialized {self}')  # BUG: Causes infinite recursion!
 
     def __finalize__(self, other, method=None, **kwds):
         """
