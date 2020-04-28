@@ -58,3 +58,17 @@ def test_decode(library, library_bytestring):
     df = pd.read_csv(fp)
     ds = xport.Dataset(df)
     assert (ds == next(iter(library.values()))).all(axis=None)
+
+
+def test_output_file(library, library_bytestring, tmp_path):
+    """
+    Verify CLI can write output to a file.
+    """
+    filepath = tmp_path / 'tmp.csv'
+    cmd = f'python -m xport - {filepath}'
+    argv = cmd.split()
+    subprocess.run(argv, capture_output=True, input=library_bytestring)
+    with open(filepath) as f:
+        df = pd.read_csv(f)
+    ds = xport.Dataset(df)
+    assert (ds == next(iter(library.values()))).all(axis=None)
