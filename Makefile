@@ -63,7 +63,7 @@ git-hooks:
 	git config core.hookspath .githooks
 
 pypi: clean check dist			# Upload to PyPI
-	twine upload --repository pypi --config-file ~/.pypirc dist/*
+	twine upload --repository pypi --config-file ~/.pypirc --verbose dist/*
 
 
 ########################################################################
