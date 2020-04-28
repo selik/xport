@@ -43,7 +43,7 @@ log_levels = [name for x, name in sorted(logging._levelToName.items()) if x]
 @click.argument('input', type=click.File('rb'))
 @click.argument(
     'output',
-    type=click.File('wb'),
+    type=click.File('wt'),
     default=sys.stdout,
 )
 @click.option(
