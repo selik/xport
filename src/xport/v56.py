@@ -472,6 +472,8 @@ class Observations(Iterator):
         Observation = namedtuple('Observation', list(header))
 
         def character_decode(s):
+            if set(s) == {0}:  # 0 is the same as b'\x00'.
+                return None
             return s.strip(b'\x00').decode('ISO-8859-1').rstrip()
 
         converters = []
@@ -506,13 +508,23 @@ class Observations(Iterator):
         """
         Get an iterator of XPORT-encoded observations.
         """
+
+        def character_encoder(length):
+
+            def encoder(s):
+                if isinstance(s, str):
+                    return s.encode('ISO-8859-1').ljust(length)
+                return b'\x00' * length
+
+            return encoder
+
         fmt = ''.join(f'{namestr.length}s' for namestr in self.header.values())
         converters = []
         for namestr in self.header.values():
             if namestr.vtype == xport.VariableType.NUMERIC:
                 converters.append(ieee_to_ibm)
             else:
-                converters.append(lambda s: s.encode('ISO-8859-1').ljust(namestr.length))
+                converters.append(character_encoder(namestr.length))
         for t in self:
             g = (f(v) for f, v in zip(converters, t))
             yield struct.pack(fmt, *g)

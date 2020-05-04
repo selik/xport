@@ -330,6 +330,11 @@ class TestEncode:
                 assert output['A']['x'].dtype.name == 'float64'
                 assert output['A']['x'].iloc[0] == 1.0
 
+    def test_text_null(self):
+        df = pd.DataFrame({'a': ['hello', None]})
+        library = self.dump_and_load(df)
+        assert list(next(iter(library.values()))['a'].isnull()) == [False, True]
+
     def test_invalid_types(self):
         """
         Verify invalid types raise errors on write.
