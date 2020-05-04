@@ -404,7 +404,7 @@ class Dataset(pd.DataFrame):
         """
         Copy metadata from a Dataset or mapping of Variables.
         """
-        LOG.debug(f'Copying metadata from {other}')
+        # LOG.debug(f'Copying metadata from {other}')  # BUG: Causes infinite recursion!
         if isinstance(other, Dataset):
             for name in self._metadata:
                 object.__setattr__(self, name, getattr(other, name, None))
