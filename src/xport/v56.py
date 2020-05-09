@@ -884,7 +884,11 @@ def load(fp):
         >>> with open('test/data/example.xpt', 'rb') as f:
         ...     library = load(f)
     """
-    return loads(fp.read())
+    try:
+        bytestring = fp.read()
+    except UnicodeDecodeError:
+        raise TypeError(f'Expected a BufferedReader in bytes-mode, got {type(fp).__name__}')
+    return loads(bytestring)
 
 
 def loads(bytestring):
