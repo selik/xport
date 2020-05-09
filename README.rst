@@ -148,7 +148,7 @@ very end of their process.
     import xport
     import xport.v56
 
-    df = pandas.DataFrame({
+    df = pd.DataFrame({
         'alpha': [10, 20, 30],
         'beta': ['x', 'y', 'z'],
     })
@@ -156,16 +156,22 @@ very end of their process.
     ...  # Analysis work ...
 
     ds = xport.Dataset(df, name='DATA', label='Wonderful data')
+
+    # SAS variable names are limited to 8 characters.  As with Pandas
+    # dataframes, you must change the name on the dataset rather than
+    # the column directly.
+    ds = ds.rename(columns={k: k.upper()[:8] for k in ds})
+
+    # Other SAS metadata can be set on the columns themselves.
     for k, v in ds.items():
-        v.label = k               # Use the column name as SAS label
-        v.name = k.upper()[:8]    # SAS names are limited to 8 chars
+        v.label = k.title()
         if v.dtype == 'object':
-            v.format = '$CHAR20.' # Variables will parse SAS formats
+            v.format = '$CHAR20.'
         else:
             v.format = '10.2'
 
-    library = xport.Library({'DATA': ds})
     # Libraries can have multiple datasets.
+    library = xport.Library({'DATA': ds})
 
     with open('example.xpt', 'wb') as f:
         xport.v56.dump(library, f)
