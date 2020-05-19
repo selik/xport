@@ -12,6 +12,14 @@ package will help you convert the data into a more useful format.  If
 someone, like the FDA, asks you for an XPT file, this package can write
 it for you.
 
+*Sponsored by* |ProtocolFirst|
+
+.. |ProtocolFirst| image:: docs/_static/protocolfirst.png
+   :height: 28
+   :alt: Protocol First
+   :align: middle
+   :target: https://www.protocolfirst.com
+
 
 What's it for?
 ==============
