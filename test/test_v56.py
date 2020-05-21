@@ -331,9 +331,13 @@ class TestEncode:
                 assert output['A']['x'].iloc[0] == 1.0
 
     def test_text_null(self):
-        df = pd.DataFrame({'a': ['hello', None]})
+        # https://github.com/selik/xport/issues/44
+        df = pd.DataFrame({
+            'a': pd.Series([None], dtype='string'),
+            'b': [0],  # Avoid issue #46 by including a numeric column.
+        })
         library = self.dump_and_load(df)
-        assert list(next(iter(library.values()))['a'].isnull()) == [False, True]
+        assert list(next(iter(library.values()))['a']) == ['']
 
     def test_invalid_types(self):
         """

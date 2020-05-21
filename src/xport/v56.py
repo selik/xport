@@ -128,6 +128,10 @@ class Namestr:
             length = 8
         else:
             length = variable.str.len().max()
+        try:
+            length = max(1, length)  # We need at least 1 byte per value.
+        except TypeError:
+            length = 1
         return cls(
             vtype=vtype,
             length=length,
@@ -472,9 +476,7 @@ class Observations(Iterator):
         Observation = namedtuple('Observation', list(header))
 
         def character_decode(s):
-            if set(s) == {0}:  # 0 is the same as b'\x00'.
-                return None
-            return s.strip(b'\x00').decode('ISO-8859-1').rstrip()
+            return s.decode('ISO-8859-1').rstrip()
 
         converters = []
         for namestr in header.values():
@@ -499,6 +501,9 @@ class Observations(Iterator):
                 chunk = mview[i:i + stride]
                 if len(chunk) != stride or chunk == sentinel:
                     return
+                # TODO: If only characters and the last row is all empty
+                #       or spaces, it's indistinguishable from padding.
+                #       https://github.com/selik/xport/issues/46
                 tokens = struct.unpack(fmt, chunk)
                 yield Observation._make(f(v) for f, v in zip(converters, tokens))
 
@@ -512,9 +517,13 @@ class Observations(Iterator):
         def character_encoder(length):
 
             def encoder(s):
-                if isinstance(s, str):
+                try:
                     return s.encode('ISO-8859-1').ljust(length)
-                return b'\x00' * length
+                except AttributeError:
+                    return b' '
+                # If handling errors from None, NAType, etc. is a
+                # bottleneck, we should ``fillna`` before creating the
+                # values iterator.
 
             return encoder
 
