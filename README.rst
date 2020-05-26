@@ -181,10 +181,23 @@ Feature requests
 ================
 
 I'm happy to fix bugs, improve the interface, or make the module
-faster. Just `submit an issue`_ and I'll take a look.
+faster.  Just `submit an issue`_ and I'll take a look.  If you work for
+a corporation or well-funded non-profit, please consider a sponsorship.
 
 .. _make an enhancement request: https://github.com/selik/xport/issues/new
 .. _submit an issue: https://github.com/selik/xport/issues/new
+
+
+Sponsorship
+===========
+
+Project sponsored by:
+
+|ProtocolFirst|
+
+.. |ProtocolFirst| image:: docs/_static/protocolfirst.png
+   :alt: Protocol First
+   :target: https://www.protocolfirst.com
 
 
 Contributing
