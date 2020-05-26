@@ -15,7 +15,6 @@ it for you.
 *Sponsored by* |ProtocolFirst|
 
 .. |ProtocolFirst| image:: docs/_static/protocolfirst.png
-   :width: 150
    :alt: Protocol First
    :align: middle
    :target: https://www.protocolfirst.com
