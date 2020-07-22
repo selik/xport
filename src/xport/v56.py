@@ -835,7 +835,9 @@ def ieee_to_ibm(ieee):
 
     if ieee == 0.0:
         return b'\x00' * 8
-    if ieee is None or math.isnan(ieee):
+    if math.isnan(ieee):
+        return b'.' + b'\x00' * 7
+    if ieee is None:
         return b'_' + b'\x00' * 7
     if math.isinf(ieee):
         raise NotImplementedError('Cannot convert infinity')
