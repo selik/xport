@@ -22,3 +22,6 @@ v3.0.0, 2020-04-20
 
 v3.1.0, 2020-04-20
   Allow ``dumps(dataframe)`` instead of requiring a ``Dataset``.
+
+v3.2.2, 2020-09-03
+  Fix a bug that incorrectly displays a - (dash) when it's a null for numeric field.
