@@ -93,7 +93,9 @@ open them using mode ``'rb'``.
 
 You can also use the ``xport`` module as a command-line tool to convert
 an XPT file to CSV (comma-separated values) file.  The ``xport``
-executable is a friendly alias for ``python -m xport``. Caution: if this command-line does not work with the lastest version, it should be working with version 2.0.2.
+executable is a friendly alias for ``python -m xport``. Caution: if this command-line does not work with the lastest version, it should be working with version 2.0.2. To get this version, we can either download the files from this `link`_ or simply type the following command line your bash terminal: ``pip install xport==2.0.2``.
+
+.. _link: https://pypi.org/project/xport/2.0.2/#files
 
 .. code:: bash
 
