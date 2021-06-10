@@ -337,7 +337,7 @@ class Variable(pd.Series):
 
         For example, transforming a series into a dataframe.
         """
-        raise NotImplementedError("Can't copy SAS variable metadata to dataframe")
+        return pd.DataFrame
 
     @property
     def format(self):
