@@ -223,8 +223,12 @@ Major revisions by `Michael Selik`_, 2016 and 2020.
 
 Minor revisions by `Alfred Chan`_, 2020.
 
+Minor revisions by `Derek Croote`_, 2021.
+
 .. _Jack Cushman: https://github.com/jcushman
 
 .. _Michael Selik: https://github.com/selik
 
 .. _Alfred Chan: https://github.com/alfred-b-chan
+
+.. _Derek Croote: https://github.com/dcroote
