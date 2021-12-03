@@ -17,8 +17,9 @@ import struct
 import xport
 import pandas as pd
 from io import BytesIO
-from .v56 import Member, Library, MemberHeader, Namestr, strptime, strftime, ibm_to_ieee, ieee_to_ibm
+from .v56 import Observations, Member, Library, MemberHeader, Namestr, strptime, strftime, ibm_to_ieee, ieee_to_ibm, text_encode
 import re
+from datetime import datetime
 code_type = 'ISO-8859-1'
 # code_type = 'GBK'
 
@@ -61,6 +62,58 @@ class NamestrV8(Namestr):
             format=xport.Format.from_struct_tokens(*tokens[6:10]),
             informat=xport.Informat.from_struct_tokens(*tokens[11:14]),
             position=tokens[14],
+        )
+
+    def __bytes__(self):
+        """
+        Encode in XPORT-format.
+        这里父系from_variable自动计算了变量类型vtype变量长度length自己提供下变量标签.
+        """
+        LOG.debug(f'Encode {type(self).__name__}')
+        fmt = self.fmts[140]
+        format_name = self.format.name.encode('ascii')
+        if len(format_name) > 8:
+            raise ValueError(
+                f'ASCII-encoded format name {format_name} longer than 8 characters')
+        informat_name = self.informat.name.encode('ascii')
+        if len(informat_name) > 8:
+            raise ValueError(
+                f'ASCII-encoded format name {informat_name} longer than 8 characters')
+        longname = self.name.encode(code_type).ljust(32) # 变量名称自动补全到32字节
+        if len(longname) > 32 :
+            raise ValueError(
+                f'ASCII-encoded name {longname} longer than 32 characters')
+        name_8 = longname[:8] # 变量名称 8位.
+        slabel = self.label
+        if slabel:
+            slengthlabel = len(slabel)
+            if len(self.label) > 256: # 变量标签长度不能超过256
+                raise ValueError(f'name {self.label} longer than 256 characters')
+            label_40 = slabel.encode(code_type).ljust(40)[:40] # 不够40补充到40多余的就切片掉
+        else:
+            slengthlabel = 0
+            label_40 = ' '.encode(code_type).ljust(40)  # label 如果是空的那就填充40个空
+
+        return struct.pack(
+            fmt,
+            self.vtype,
+            0,  # "Hash" of name, always 0.
+            self.length,
+            self.number,
+            name_8, # 仅输入8位变量名称
+            label_40, # 不够40补充到40多余的就切片掉
+            format_name.ljust(8),
+            self.format.length,
+            self.format.decimals,
+            self.format.justify,
+            b'',  # Unused
+            informat_name.ljust(8),
+            self.informat.length,
+            self.informat.decimals,
+            self.position,
+            longname, # 32s
+            slengthlabel, # h
+            b'',  # Padding
         )
 
 
@@ -177,7 +230,8 @@ class MemberHeaderV8(MemberHeader):
             raise ValueError('No member header found')
         namestrlablelvbytes = mo['namestrs']
         stride = int(mo['descriptor_size'])
-        namestrs = NamestrLablelv.from_bytes(namestrlablelvbytes, stride=stride)
+        namestrs = NamestrLablelv.from_bytes(
+            namestrlablelvbytes, stride=stride)
         n = int(mo['n_variables'])
         if len(namestrs) != n:
             raise ValueError(f'Expected {n}, got {len(namestrs)}')
@@ -195,6 +249,83 @@ class MemberHeaderV8(MemberHeader):
         )
         return self
 
+    @classmethod
+    def from_dataset(cls, dataset: xport.Dataset):
+        """
+        Construct a ``MemberHeader`` from an ``xport.Dataset``.
+        """
+        namestrs = []
+        p = 0
+        for i, (k, v) in enumerate(dataset.items(), 1):
+            ns = NamestrV8.from_variable(v, number=i)
+            ns.position = p
+            p += ns.length
+            namestrs.append(ns)
+        return cls(
+            name=dataset.name,
+            label=dataset.label,
+            dataset_type=dataset.dataset_type,
+            created=dataset.created,
+            modified=dataset.modified,
+            sas_os=dataset.sas_os,
+            sas_version=dataset.sas_version,
+            namestrs=namestrs,
+            obs_rows=dataset.shape[0] # 行数量 观测值的数量
+        )
+
+    template = f'''\
+HEADER RECORD{'*' * 7}MEMBV8  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
+HEADER RECORD{'*' * 7}DSCPTV8 HEADER RECORD{'!' * 7}{'0' * 30}  \
+SAS     %(name)32bSASDATA %(version)8b%(os)8b%(created)16b\
+%(modified)16b{' ' * 16}%(label)40b%(type)8b\
+HEADER RECORD{'*' * 7}NAMSTV8 HEADER RECORD{'!' * 7}{'0' * 6}\
+%(n_variables)04d{'0' * 20}  \
+%(namestrs)b\
+HEADER RECORD{'*' * 7}OBSV8   HEADER RECORD{'!' * 7}%(obs_rows)15b{' ' * 17}\
+'''.encode('ascii')
+
+    def __bytes__(self):
+        """
+        Encode in XPORT-format.
+        """
+        LOG.debug(f'Encode {type(self).__name__}')
+        '''
+        namestrs 需要根据情况改变. 三种情况
+        1.变量标签和变量信息长度都没有超过限制
+        2.HEADER RECORD*******LABELV8 HEADER RECORD!!!!!!!nnnnn
+          变量标签超过40个字符(btyes) 在256个以内 已完成
+        3.HEADER RECORD*******LABELV9 HEADER RECORD!!!!!!!nnnnn
+          变量信息超过8位 未完成
+        '''
+        header_labelv8 = f'HEADER RECORD*******LABELV8 HEADER RECORD!!!!!!!{len(self.values())}'.encode('ascii').ljust(80)
+        nsl = []
+        nslv8 = []
+        for ns in self.values():
+            nsl.append(bytes(ns)) # 无论是什么都需要标准的namestrs
+            if ns.label: # 变量标签有可能是空
+                if len(ns.label) > 40: # v5版本40个上限 那么运行v8 版本
+                    nslv8.append(byteslev8(ns))
+        namestrs = b''.join(nsl)
+        if len(namestrs) % 80: # 先算一边
+            namestrs += b' ' * (80 - len(namestrs) % 80)
+
+        if nslv8: # 如果满足LAEBLv8 格式
+            namestrs = namestrs + header_labelv8 + b''.join(nslv8)
+
+        if len(namestrs) % 80: # 合并好了再算一遍
+            namestrs += b' ' * (80 - len(namestrs) % 80)
+        return self.template % {
+            b'name': text_encode(self, 'name', 32),
+            b'label': text_encode(self, 'label', 40),
+            b'type': text_encode(self, 'dataset_type', 8),
+            b'n_variables': len(self),
+            b'os': text_encode(self, 'sas_os', 8),
+            b'version': text_encode(self, 'sas_version', 8),
+            b'created': strftime(self.created if self.created else datetime.now()),
+            b'modified': strftime(self.modified if self.modified else datetime.now()),
+            b'namestrs': namestrs,
+            b'obs_rows': str(self.obs_rows).encode('ascii').rjust(15)
+            }
 
 class MemberV8(Member):
     """
@@ -229,12 +360,44 @@ class MemberV8(Member):
         # This awkwardness works around Pandas subclasses misbehaving.
         # ``DataFrame.append`` discards subclass attributes.  Lame.
         head = cls.from_header(header)
-        data = Member(pd.DataFrame.from_records(observations, columns=list(header)))
+        data = Member(pd.DataFrame.from_records(
+            observations, columns=list(header)))
         data.copy_metadata(head)
         LOG.info(f'Decoded XPORT dataset {data.name!r}')
         LOG.debug('%s', data)
         return data
 
+    def __bytes__(self):
+        """
+        Encode in XPORT-format.
+        """
+        LOG.debug(f'Encode {type(self).__name__}')
+        dtype_kind_conversions = {
+            'O': 'string',
+            'b': 'float',
+            'i': 'float',
+        }
+        dtypes = self.dtypes.to_dict()
+        conversions = {}
+        for column, dtype in dtypes.items():
+            try:
+                conversions[column] = dtype_kind_conversions[dtype.kind]
+            except KeyError:
+                continue
+        if conversions:
+            warnings.warn(f'Converting column dtypes {conversions}')
+            self = self.copy()  # Don't mutate!
+            for column, dtype in conversions.items():
+                LOG.warning(
+                    f'Converting column {column!r} from {dtypes[column]} to {dtype}')
+                try:
+                    self[column] = self[column].astype(dtype)
+                except Exception:
+                    raise TypeError(
+                        f'Could not coerce column {column!r} to {dtype}')
+        header = bytes(MemberHeaderV8.from_dataset(self))
+        observations = bytes(Observations.from_dataset(self))
+        return header + observations
 
 class LibraryV8(Library):
     """
@@ -278,6 +441,38 @@ class LibraryV8(Library):
         LOG.info(f'Decoded {self}')
         return self
 
+    template = f'''\
+HEADER RECORD{'*' * 7}LIBV8   HEADER RECORD{'!' * 7}{'0' * 30}  \
+SAS     SAS     SASLIB  \
+%(version)8b%(os)8b{' ' * 24}%(created)16b\
+%(modified)16b{' ' * 64}\
+%(members)b\
+'''.encode('ascii')
+
+    def __bytes__(self):
+        """
+        XPORT-format bytes string.
+        """
+        return self.template % {
+            b'version': text_encode(self, 'sas_version', 8),
+            b'os': text_encode(self, 'sas_os', 8),
+            b'created': strftime(self.created if self.created else datetime.now()),
+            b'modified': strftime(self.modified if self.modified else datetime.now()),
+            b'members': b''.join(bytes(MemberV8(member)) for member in self.values()),
+        }
+
+
+def byteslev8(ns):
+    '组装lev8格式超过40位变量标签长度'
+    fmt = '>hhh'
+    aa = ns.number
+    bb = len(ns.name)
+    cc = len(ns.label)
+    d = ns.name.encode(code_type)
+    e = ns.label.encode(code_type)
+    byte80 = struct.pack(fmt, aa,bb,cc) + d + e
+    return byte80
+
 
 def lavlev8(lavlev8bytes, label_num):
     """
@@ -302,8 +497,11 @@ def lavlev8(lavlev8bytes, label_num):
                       int.from_bytes(lavlev8bytes[4:6], byteorder='big'),)
         totalLength = 6 + bb + cc
         # 得到变量名称
-        d = lavlev8bytes[6:6+bb].tobytes().strip(b'\x00').decode(code_type).strip()
-        e = lavlev8bytes[6+bb:totalLength].tobytes().strip(b'\x00').decode(code_type).strip()  # 变量标签
+        d = lavlev8bytes[6:6 +
+                         bb].tobytes().strip(b'\x00').decode(code_type).strip()
+        # 变量标签
+        e = lavlev8bytes[6+bb:totalLength].tobytes().strip(
+            b'\x00').decode(code_type).strip()
         lavlev8bytes = lavlev8bytes[totalLength:lavlev8bytes.shape[0]]
         name_label_sets = dict(**name_label_sets, **{str(aa):  {'lengthname': bb,
                                                                 'lengthlabel': cc,
@@ -344,10 +542,14 @@ def lavlev9(lavlev9bytes, label_num):
             int.from_bytes(lavlev9bytes[8:10], byteorder='big'),)
         totalLength = 10 + bb + cc + dd + ee
         # 得到变量名称
-        f = lavlev9bytes[10:10+bb].tobytes().strip(b'\x00').decode(code_type).strip()
-        g = lavlev9bytes[10+bb:10+bb+cc].tobytes().strip(b'\x00').decode(code_type).strip()  # 变量标签
-        h = lavlev9bytes[10+bb+cc:10+bb+cc+dd].tobytes().strip(b'\x00').decode(code_type).strip()
-        i = lavlev9bytes[10+bb+cc+dd:totalLength].tobytes().strip(b'\x00').decode(code_type).strip()
+        f = lavlev9bytes[10:10 +
+                         bb].tobytes().strip(b'\x00').decode(code_type).strip()
+        g = lavlev9bytes[10+bb:10+bb +
+                         cc].tobytes().strip(b'\x00').decode(code_type).strip()  # 变量标签
+        h = lavlev9bytes[10+bb+cc:10+bb+cc +
+                         dd].tobytes().strip(b'\x00').decode(code_type).strip()
+        i = lavlev9bytes[10+bb+cc +
+                         dd:totalLength].tobytes().strip(b'\x00').decode(code_type).strip()
         lavlev9bytes = lavlev9bytes[totalLength:lavlev9bytes.shape[0]]
         name_label_sets = dict(**name_label_sets, **{str(aa):  {'lengthname': bb,
                                                                 'lengthlabel': cc,
@@ -385,34 +587,72 @@ def loads(bytestring):
     """
     return LibraryV8.from_bytes(bytestring)
 
-
-def dump(columns, fp, name=None, labels=None, formats=None):
+def dump(library, fp):
     """
-    Serialize a SAS V8 transport file format document.
+    Serialize a SAS dataset library to a SAS Transport v5 (XPORT) file.
 
-        data = {
-            'a': [1, 2],
-            'b': [3, 4],
-        }
-        with open('example.xpt', 'wb') as f:
-            dump(data, f)
+        >>> library = Library()
+        >>> with open('test/data/doctest.xpt', 'wb') as f:
+        ...     dump(library, f)
+
+    The input ``library`` can be either an ``xport.Library``, an
+    ``xport.Dataset`` collection, or a single ``pandas.DataFrame``.
+    An ``xport.Dataset`` is preferable, because that can be assigned a
+    name, which SAS expects.
+
+        >>> ds = xport.Dataset(name='EMPTY')
+        >>> with open('test/data/doctest.xpt', 'wb') as f:
+        ...     dump(ds, f)
+
     """
-    raise NotImplementedError()
+    fp.write(dumps(library))
 
 
-def dumps(columns, name=None, labels=None, formats=None):
+def dumps(library):
     """
-    Serialize a SAS V8 transport file format document to a string.
+    Serialize a SAS dataset library to a string in XPORT-format.
 
-        data = {
-            'a': [1, 2],
-            'b': [3, 4],
-        }
-        bytestring = dumps(data)
-        with open('example.xpt', 'wb') as f:
-            f.write(bytestring)
+        >>> library = Library()
+        >>> bytestring = dumps(library)
+
+    The input ``library`` can be either an ``xport.Library``, an
+    ``xport.Dataset`` collection, or a single ``pandas.DataFrame``.
+    An ``xport.Dataset`` is preferable, because that can be assigned a
+    name, which SAS expects.
+
+        >>> ds = xport.Dataset(name='EMPTY')
+        >>> bytestring = dumps(ds)
+
     """
-    fp = BytesIO()
-    dump(columns, fp)
-    fp.seek(0)
-    return fp.read()
+    return bytes(LibraryV8(library))
+
+# def dump(columns, fp, name=None, labels=None, formats=None):
+#     """
+#     Serialize a SAS V8 transport file format document.
+
+#         data = {
+#             'a': [1, 2],
+#             'b': [3, 4],
+#         }
+#         with open('example.xpt', 'wb') as f:
+#             dump(data, f)
+#     """
+#     raise NotImplementedError()
+
+
+# def dumps(columns, name=None, labels=None, formats=None):
+#     """
+#     Serialize a SAS V8 transport file format document to a string.
+
+#         data = {
+#             'a': [1, 2],
+#             'b': [3, 4],
+#         }
+#         bytestring = dumps(data)
+#         with open('example.xpt', 'wb') as f:
+#             f.write(bytestring)
+#     """
+#     fp = BytesIO()
+#     dump(columns, fp)
+#     fp.seek(0)
+#     return fp.read()
