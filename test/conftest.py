@@ -25,7 +25,7 @@ def library():
             'TEMP': [98.6, 95.4, 86.7, 93.4, 103.5, 56.7],
         },
         name='ECON',
-        label='Blank-padded dataset label',
+        dataset_label='Blank-padded dataset label',
         dataset_type='',
     )
     ds.created = ds.modified = datetime(2015, 11, 13, 10, 35, 8)

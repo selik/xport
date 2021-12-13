@@ -286,7 +286,7 @@ class MemberHeader(Mapping):
     def __init__(
         self,
         name,
-        label,
+        dataset_label,
         dataset_type,
         created,
         modified,
@@ -298,7 +298,7 @@ class MemberHeader(Mapping):
         Initialize a ``MemberHeader``.
         """
         self.name = name
-        self.label = label
+        self.dataset_label = dataset_label
         self.dataset_type = dataset_type
         self.created = created
         self.modified = modified
@@ -358,7 +358,7 @@ class MemberHeader(Mapping):
             namestrs.append(ns)
         return cls(
             name=dataset.name,
-            label=dataset.label,
+            dataset_label=dataset.dataset_label,
             dataset_type=dataset.dataset_type,
             created=dataset.created,
             modified=dataset.modified,
@@ -390,7 +390,7 @@ class MemberHeader(Mapping):
             raise ValueError(f'Expected {n}, got {len(namestrs)}')
         self = cls(
             name=mo['name'].strip(b'\x00').decode('ISO-8859-1').strip(),
-            label=mo['label'].strip(b'\x00').decode('ISO-8859-1').strip(),
+            dataset_label=mo['label'].strip(b'\x00').decode('ISO-8859-1').strip(),
             dataset_type=mo['type'].strip(b'\x00').decode('ISO-8859-1').strip(),
             sas_os=mo['os'].strip(b'\x00').decode('ISO-8859-1').strip(),
             sas_version=mo['version'].strip().decode('ISO-8859-1'),
@@ -421,7 +421,7 @@ HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
             namestrs += b' ' * (80 - len(namestrs) % 80)
         return self.template % {
             b'name': text_encode(self, 'name', 8),
-            b'label': text_encode(self, 'label', 40),
+            b'label': text_encode(self, 'dataset_label', 40),
             b'type': text_encode(self, 'dataset_type', 8),
             b'n_variables': len(self),
             b'os': text_encode(self, 'sas_os', 8),
@@ -628,13 +628,17 @@ class Member(xport.Dataset):
                 continue
         if conversions:
             warnings.warn(f'Converting column dtypes {conversions}')
-            self = self.copy()  # Don't mutate!
+            # BUG: ``DataFrame.copy`` mutates and discards ``Variable`` metadata.
+            # self = self.copy()  # Don't mutate!
+            cpy = xport.Dataset({k: v for k, v in self.items()})
             for column, dtype in conversions.items():
                 LOG.warning(f'Converting column {column!r} from {dtypes[column]} to {dtype}')
                 try:
-                    self[column] = self[column].astype(dtype)
+                    cpy[column] = cpy[column].astype(dtype)
                 except Exception:
                     raise TypeError(f'Could not coerce column {column!r} to {dtype}')
+            cpy.copy_metadata(self)
+            self = cpy
         header = bytes(MemberHeader.from_dataset(self))
         observations = bytes(Observations.from_dataset(self))
         return header + observations
@@ -691,7 +695,7 @@ class Library(xport.Library):
         mo = cls.pattern.match(mview)
         if mo is None:
             lines = [mview[i * 80:(i + 1) * 80] for i in range(8)]
-            LOG.error(f'Document begins with' + '\n%s' * len(lines), *lines)
+            LOG.error('Document begins with' + '\n%s' * len(lines), *lines)
             raise ValueError('Document does not match SAS Version 5 or 6 Transport (XPORT) format')
 
         matches = member_header_re.finditer(mview)

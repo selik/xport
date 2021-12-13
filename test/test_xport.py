@@ -190,7 +190,7 @@ class TestDatasetMetadata:
                 'b': xport.Variable(['x'], label='Beta')
             },
             name='EXAMPLE',
-            label='Example',
+            dataset_label='Example',
         )
         self.compare_metadata(ds.copy(), ds)
         self.compare_metadata(
@@ -213,7 +213,7 @@ class TestDatasetMetadata:
                 'c': [None],
             },
             name='EXAMPLE',
-            label='Example',
+            dataset_label='Example',
         )
         ds['a'].vtype = xport.VariableType.NUMERIC
         ds['b'].vtype = xport.VariableType.CHARACTER
