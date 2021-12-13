@@ -271,7 +271,7 @@ class Variable(pd.Series):
     def __repr__(self):
         """REPL-format."""
         metadata = (name.strip('_') for name in self._metadata)
-        metadata = {name: getattr(self, name) for name in metadata}
+        metadata = {name: getattr(self, name, None) for name in metadata}
         metadata = (f'{name}: {value}' for name, value in metadata.items() if value is not None)
         return f'{type(self).__name__}\n{super().__repr__()}\n{", ".join(metadata)}'
 
@@ -391,7 +391,7 @@ class Dataset(pd.DataFrame):
 
     _metadata = [
         'name',
-        'label',
+        'dataset_label',
         'dataset_type',
         'created',
         'modified',
@@ -418,7 +418,7 @@ class Dataset(pd.DataFrame):
     def __repr__(self):
         """REPL-format."""
         metadata = (name.strip('_') for name in self._metadata)
-        metadata = {name: getattr(self, name) for name in metadata}
+        metadata = {name: getattr(self, name, None) for name in metadata}
         metadata = (f'{name}: {value}' for name, value in metadata.items() if value)
         template = '''\
             {cls} {name}
@@ -443,7 +443,7 @@ class Dataset(pd.DataFrame):
         dtype=None,
         copy=False,
         name=None,
-        label=None,
+        dataset_label=None,
         dataset_type=None,
         created=None,
         modified=None,
@@ -456,7 +456,7 @@ class Dataset(pd.DataFrame):
         """
         metadata = {
             'name': name,
-            'label': label,
+            'dataset_label': dataset_label,
             'created': created,
             'modified': modified,
             'sas_os': sas_os,
