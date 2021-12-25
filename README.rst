@@ -184,16 +184,17 @@ Feature requests
 
 I'm happy to fix bugs, improve the interface, or make the module
 faster.  Just `submit an issue`_ and I'll take a look.  If you work for
-a corporation or well-funded non-profit, please consider a sponsorship.
+a corporation or well-funded non-profit, please consider a sponsorship_.
 
 .. _make an enhancement request: https://github.com/selik/xport/issues/new
 .. _submit an issue: https://github.com/selik/xport/issues/new
+.. _sponsorship: https://github.com/sponsors/selik
 
 
-Sponsorship
-===========
+Thanks
+======
 
-Project sponsored by:
+Current and past sponsors include:
 
 |ProtocolFirst|
 
