@@ -118,9 +118,9 @@ class TestVariableMetadata:
 
     @staticmethod
     def compare_metadata(got, expected):
-        for name in expected._metadata:
-            assert getattr(got, name) == getattr(expected, name)
-        assert got.vtype == expected.vtype
+        for key in expected.attrs:
+            assert getattr(got, key) == getattr(expected, key), key
+        assert set(got.attrs) == set(expected.attrs)
 
     def test_init(self):
         """

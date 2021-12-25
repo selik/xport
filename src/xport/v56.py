@@ -602,7 +602,7 @@ class Member(xport.Dataset):
         # ``DataFrame.append`` discards subclass attributes.  Lame.
         head = cls.from_header(header)
         data = Member(pd.DataFrame.from_records(observations, columns=list(header)))
-        data.copy_metadata(head)
+        data.attrs.update(head.attrs)
         LOG.info(f'Decoded XPORT dataset {data.name!r}')
         LOG.debug('%s', data)
         return data
@@ -626,16 +626,13 @@ class Member(xport.Dataset):
                 continue
         if conversions:
             warnings.warn(f'Converting column dtypes {conversions}')
-            # BUG: ``DataFrame.copy`` mutates and discards ``Variable`` metadata.
-            # self = self.copy()  # Don't mutate!
-            cpy = xport.Dataset({k: v for k, v in self.items()})
+            cpy = self.copy()
             for column, dtype in conversions.items():
                 LOG.warning(f'Converting column {column!r} from {dtypes[column]} to {dtype}')
                 try:
                     cpy[column] = cpy[column].astype(dtype)
                 except Exception:
                     raise TypeError(f'Could not coerce column {column!r} to {dtype}')
-            cpy.copy_metadata(self)
             self = cpy
         header = bytes(MemberHeader.from_dataset(self))
         observations = bytes(Observations.from_dataset(self))
