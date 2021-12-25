@@ -15,7 +15,6 @@ import math
 import re
 import struct
 import warnings
-from collections import namedtuple
 from collections.abc import Iterator, Mapping
 from datetime import datetime
 
@@ -473,7 +472,6 @@ class Observations(Iterator):
         Yield observations from an XPORT-format byte string.
         """
         LOG.debug(f'Decode {type(cls).__name__}')
-        Observation = namedtuple('Observation', list(header))
 
         def character_decode(s):
             return s.decode('ISO-8859-1').rstrip()
@@ -505,7 +503,7 @@ class Observations(Iterator):
                 #       or spaces, it's indistinguishable from padding.
                 #       https://github.com/selik/xport/issues/46
                 tokens = struct.unpack(fmt, chunk)
-                yield Observation._make(f(v) for f, v in zip(converters, tokens))
+                yield tuple(f(v) for f, v in zip(converters, tokens))
 
         return cls(iterator(), header)
 
