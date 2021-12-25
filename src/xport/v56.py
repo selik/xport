@@ -368,12 +368,12 @@ class MemberHeader(Mapping):
         )
 
     @classmethod
-    def from_bytes(cls, bytestring: bytes):
+    def from_bytes(cls, bytestring: bytes, Namestr=Namestr):
         """
         Construct a ``MemberHeader`` from an XPORT-format byte string.
         """
         LOG.debug(f'Decode {type(cls).__name__}')
-        mo = cls.pattern.search(bytestring)
+        mo = cls.pattern.search(bytestring)  # TODO: Why ``search``, not ``match``?
         if mo is None:
             raise ValueError('No member header found')
 
@@ -413,7 +413,7 @@ HEADER RECORD{'*' * 7}OBS     HEADER RECORD{'!' * 7}{'0' * 30}  \
 
     def __bytes__(self):
         """
-        Encode in XPORT-format.
+        Encode in XPORT format.
         """
         LOG.debug(f'Encode {type(self).__name__}')
         namestrs = b''.join(bytes(ns) for ns in self.values())
@@ -576,13 +576,13 @@ class Member(xport.Dataset):
         return self
 
     @classmethod
-    def from_bytes(cls, bytestring, pattern=MemberHeader.pattern):
+    def from_bytes(cls, bytestring, MemberHeader=MemberHeader, Observations=Observations):
         """
         Decode the first ``Member`` from an XPORT-format byte string.
         """
         LOG.debug(f'Decode {type(cls).__name__}')
         mview = memoryview(bytestring)
-        matches = pattern.finditer(mview)
+        matches = MemberHeader.pattern.finditer(mview)
 
         try:
             mo = next(matches)
@@ -597,8 +597,8 @@ class Member(xport.Dataset):
         else:
             j = mo.start(0)
 
-        header = xport.v56.MemberHeader.from_bytes(mview[:i])
-        observations = xport.v56.Observations.from_bytes(mview[i:j], header)
+        header = MemberHeader.from_bytes(mview[:i])
+        observations = Observations.from_bytes(mview[i:j], header)
 
         # This awkwardness works around Pandas subclasses misbehaving.
         # ``DataFrame.append`` discards subclass attributes.  Lame.
@@ -686,7 +686,7 @@ class Library(xport.Library):
     )
 
     @classmethod
-    def from_bytes(cls, bytestring, member_header_re=MemberHeader.pattern):
+    def from_bytes(cls, bytestring, MemberHeader=MemberHeader, Member=Member):
         """
         Parse a SAS XPORT document from a byte string.
         """
@@ -694,14 +694,14 @@ class Library(xport.Library):
         mview = memoryview(bytestring)
         mo = cls.pattern.match(mview)
         if mo is None:
-            lines = [mview[i * 80:(i + 1) * 80] for i in range(8)]
+            lines = [mview[i * 80:(i + 1) * 80].tobytes() for i in range(8)]
             LOG.error('Document begins with' + '\n%s' * len(lines), *lines)
             raise ValueError('Document does not match SAS Version 5 or 6 Transport (XPORT) format')
 
-        matches = member_header_re.finditer(mview)
+        matches = MemberHeader.pattern.finditer(mview)
         indices = [m.start(0) for m in matches] + [None]
         chunks = (mview[i:j] for i, j in zip(indices, indices[1:]))
-        self = Library(
+        self = cls(
             members=map(Member.from_bytes, chunks),
             created=strptime(mo['created']),
             modified=strptime(mo['modified']),
