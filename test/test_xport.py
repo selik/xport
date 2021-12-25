@@ -3,6 +3,8 @@ Tests for the core interface.
 """
 
 # Standard Library
+import math
+import string
 from io import BytesIO
 
 # Community Packages
@@ -11,6 +13,20 @@ import pytest
 
 # Xport Modules
 import xport
+
+
+class TestNaN:
+    """
+    Test special missing values.
+    """
+
+    def test_names(self):
+        for c in '_' + string.ascii_uppercase:
+            assert getattr(xport.NaN, c)
+
+    def test_values(self):
+        for c in '_' + string.ascii_uppercase:
+            assert math.isnan(getattr(xport.NaN, c))
 
 
 class TestInformat:

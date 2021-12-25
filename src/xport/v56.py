@@ -785,14 +785,16 @@ def ibm_to_ieee(ibm: bytes) -> float:
     mantissa = ulong & 0x00ffffffffffffff
 
     if mantissa == 0:
-        if ibm[0:1] == b'\x00':
+        if ibm[:1] == b'\x00':
             return 0.0
-        elif ibm[0:1] == b'\x80':
+        elif ibm[:1] == b'\x80':
             return -0.0
-        elif ibm[0:1] in b'_.ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+        elif ibm[:1] == b'.':
             return float('nan')
+        elif ibm[:1] in b'_ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+            return getattr(xport.NaN, chr(ibm[0]))
         else:
-            raise ValueError('Neither zero nor NaN: %r' % ibm)
+            raise ValueError('Neither "true" zero nor NaN: %r' % ibm)
 
     # IBM-format exponent is base 16, so the mantissa can have up to 3
     # leading zero-bits in the binary mantissa. IEEE format exponent
@@ -837,10 +839,21 @@ def ieee_to_ibm(ieee):
 
     if ieee == 0.0:
         return b'\x00' * 8
+
+    # The IBM hexadecimal floating point (HFP) format represents the number
+    # zero with all zero bits.  All zero bits is the "true zero" or normalized
+    # form of zero.  Any values for the sign and exponent can be used if the
+    # mantissa portion of the encoding is all zero bits, but an IBM machine
+    # might lose precision when performing arithmetic with alternative zero
+    # representations.  With that in mind, and because this format was not
+    # defined with a mechanism for not-a-number (NaN) values, SAS uses
+    # alternative zero encodings to represent NaN.  By default, a SAS missing
+    # value is encoded with an ASCII-encoded period (".") as the first byte.
+
+    if isinstance(ieee, xport.NaN):
+        return bytes(ieee)
     if math.isnan(ieee):
         return b'.' + b'\x00' * 7
-    if ieee is None:
-        return b'_' + b'\x00' * 7
     if math.isinf(ieee):
         raise NotImplementedError('Cannot convert infinity')
 

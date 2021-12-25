@@ -28,3 +28,6 @@ v3.2.2, 2020-09-03
 
 v3.3.0, 2021-12-25
   Enable reading Transport Version 8/9 files.  Merry Christmas!
+
+v3.4.0, 2021-12-25
+  Add support for special missing values, like `.A`, that extend `float`.

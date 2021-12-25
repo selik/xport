@@ -6,6 +6,7 @@ Read and write SAS XPORT/XPT-format files.
 import enum
 import logging
 import re
+import string
 import struct
 import textwrap
 import warnings
@@ -16,14 +17,54 @@ from io import StringIO
 # Community Packages
 import pandas as pd
 
-from .__about__ import __version__  # noqa: F401
+from .__about__ import __version__  # noqa: F401 module imported but unused
 
 LOG = logging.getLogger(__name__)
 
 __all__ = [
     'Library',
     'Member',
+    'NaN',
 ]
+
+
+class SpecialMissingValue(float):
+    """
+    Special missing values.
+
+    SAS supports 27 special missing values, allowing the categorization of
+    missing data by tagging or labeling missing values using the letters A to Z
+    or an underscore.
+    """
+
+    pattern = re.compile(b'^(?P<tag>[A-Z_])' + b'\x00' * 7 + b'$')
+
+    def __bytes__(self):
+        """
+        XPORT-format byte string.
+        """
+        return self.name.encode('ascii') + b'\x00' * 7
+
+    @classmethod
+    def unpack(cls, bytestring):
+        """
+        Create a ``SpecialMissingValue`` from an XPORT-format bytestring.
+
+        For compatibility with standard Python tools, ``xport.v56.ibm_to_ieee``
+        creates regular float NaNs rather than special missing values.
+        """
+        match = cls.pattern.match(bytestring)
+        return NaN(match['tag'].decode('ascii'))
+
+
+NaN = enum.Enum(
+    value='NaN',
+    names={c: float('nan')
+           for c in '_' + string.ascii_uppercase},
+    module=__name__,
+    type=SpecialMissingValue,
+)
+NaN.__doc__ = SpecialMissingValue.__doc__
 
 
 class VariableType(enum.IntEnum):
