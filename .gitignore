@@ -1,5 +1,6 @@
 # Test data
 test/data/doctest.xpt
+test/data/doctest.v8xpt
 *.csv
 
 # Sphinx output
