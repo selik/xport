@@ -25,3 +25,6 @@ v3.1.0, 2020-04-20
 
 v3.2.2, 2020-09-03
   Fix a bug that incorrectly displays a - (dash) when it's a null for numeric field.
+
+v3.3.0, 2021-12-25
+  Enable reading Transport Version 8/9 files.  Merry Christmas!

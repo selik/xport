@@ -16,6 +16,7 @@ import yaml
 # Xport Modules
 import xport
 import xport.v56
+import xport.v89
 
 __all__ = [
     'cli',
@@ -69,10 +70,16 @@ def cli(input, output, dataset, loglevel):
     LOG.debug('CLI arg --loglevel = %r', loglevel)
     LOG.debug('Using logging config %s', json.dumps(LOG_CONFIG, indent=2))
 
-    library = xport.v56.load(input)
+    bytestring = input.read()
+    if xport.v89.Library.pattern.match(bytestring):
+        library = xport.v89.loads(bytestring)
+    else:
+        library = xport.v56.loads(bytestring)
     if dataset is not None:
         ds = library[dataset]
-    else:
+    elif library:
         ds = next(iter(library.values()))
+    else:
+        raise ValueError("Library has no member datasets")
     LOG.info(f'Selected dataset {ds.name!r}')
     ds.to_csv(output, index=False)
