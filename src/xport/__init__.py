@@ -53,7 +53,7 @@ class Informat:
     )
 
     #    char8 niform;      /* NAME OF INPUT FORMAT                   */
-    #    short nifl;         /* INFORMAT LENGTH ATTRIBUTE              */
+    #    short nifl;        /* INFORMAT LENGTH ATTRIBUTE              */
     #    short nifd;        /* INFORMAT NUMBER OF DECIMALS            */
     byte_structure = '>8shh'
 
@@ -778,6 +778,10 @@ class Reader:
 
     def __getattr__(self, name):
         return getattr(self.dataset, name)
+
+
+class XportReader(Reader):
+    pass  # Alias.  https://github.com/selik/xport/issues/55
 
 
 class NamedTupleReader(Reader):
