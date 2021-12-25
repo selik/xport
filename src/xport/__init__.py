@@ -293,6 +293,7 @@ class Variable(pd.Series):
         """
         Initialize SAS variable metadata.
         """
+        # TODO: Consider validating that the name isn't blank.
         metadata = {
             'label': label,
             'vtype': vtype,
@@ -397,7 +398,6 @@ class Dataset(pd.DataFrame):
         'modified',
         'sas_os',
         'sas_version',
-        # TODO: Consider including dataset type: {'DATA', 'VIEW', ''}.
     ]
 
     def copy_metadata(self, other):
@@ -454,6 +454,9 @@ class Dataset(pd.DataFrame):
         """
         Initialize SAS dataset metadata.
         """
+        # TODO: Consider validating dataset type: {'DATA', 'VIEW', 'CATALOG'}.
+        #       I think only 'DATA' is supported by the XPORT format.
+        # TODO: Consider validating that the name isn't blank.
         metadata = {
             'name': name,
             'dataset_label': dataset_label,
@@ -691,10 +694,12 @@ def from_rows(iterable, fp):
 
 def from_dataframe(dataframe, fp):
     """
-    Write a Pandas ``DataFrame`` to an open file-like object, ``fp``, in
-    XPT-format.
+    Write a Pandas ``DataFrame`` to an XPORT-format file.
+
+    Serialize to ``fp``, an open file-like object.
     """
     # Avoid circular import problems.
+    # Xport Modules
     from xport.v56 import dump
     warnings.warn('Please use ``xport.v56.dump`` in the future', DeprecationWarning)
     library = Library([Dataset(dataframe)])
@@ -704,6 +709,7 @@ def from_dataframe(dataframe, fp):
 def to_rows(fp):
     """
     Read a file in XPT-format and return rows.
+
     Deserialize ``fp`` (a ``.read()``-supporting file-like object
     containing an XPT document) to a list of rows. As XPT files are
     encoded in their own special format, the ``fp`` object must be in
@@ -717,6 +723,7 @@ def to_rows(fp):
 def to_columns(fp):
     """
     Read a file in XPT-format and return columns as a dict of lists.
+
     Deserialize ``fp`` (a ``.read()``-supporting file-like object
     containing an XPT document) to a list of rows. As XPT files are
     encoded in their own special format, the ``fp`` object must be in
@@ -729,6 +736,7 @@ def to_columns(fp):
 def to_numpy(fp):
     """
     Read a file in SAS XPT format and return a NumPy array.
+
     Deserialize ``fp`` (a ``.read()``-supporting file-like object
     containing an XPT document) to a list of rows. As XPT files are
     encoded in their own special format, the ``fp`` object must be in
@@ -740,12 +748,14 @@ def to_numpy(fp):
 def to_dataframe(fp):
     """
     Read a file in SAS XPT format and return a Pandas DataFrame.
+
     Deserialize ``fp`` (a ``.read()``-supporting file-like object
     containing an XPT document) to a list of rows. As XPT files are
     encoded in their own special format, the ``fp`` object must be in
     bytes-mode.
     """
     # Avoid circular import problems.
+    # Xport Modules
     from xport.v56 import load
     warnings.warn('Please use ``xport.v56.load`` in the future', DeprecationWarning)
     library = load(fp)
@@ -755,6 +765,8 @@ def to_dataframe(fp):
 
 class Reader:
     """
+    Read records from a SAS Transport (XPORT) file.
+
     Deserialize ``self._fp`` (a ``.read()``-supporting file-like object
     containing an XPT document) to a Python object.
 
