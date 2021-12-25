@@ -4,6 +4,7 @@ Tests for XPT format from SAS versions 5 and 6.
 
 # Standard Library
 import math
+import string
 from datetime import datetime
 
 # Community Packages
@@ -275,6 +276,12 @@ class TestIEEEtoIBM:
     def test_nan(self):
         n = float('nan')
         assert math.isnan(self.roundtrip(n))
+
+    def test_special_missing_values(self):
+        for c in '_' + string.ascii_uppercase:
+            n = getattr(xport.NaN, c)
+            assert chr(bytes(n)[0]) == c
+            assert math.isnan(self.roundtrip(n))
 
     def test_zero(self):
         assert self.roundtrip(0) == 0
