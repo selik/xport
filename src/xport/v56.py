@@ -177,6 +177,10 @@ class Namestr:
         informat_name = self.informat.name.encode('ascii')
         if len(informat_name) > 8:
             raise ValueError(f'ASCII-encoded format name {informat_name} longer than 8 characters')
+        if self.number is None:
+            raise ValueError('Variable number not assigned')
+        if self.position is None:
+            raise ValueError('Variable position not assigned')
         return struct.pack(
             fmt,
             self.vtype,
