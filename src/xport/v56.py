@@ -731,6 +731,10 @@ SAS     SAS     SASLIB  \
 
 
 def text_encode(obj, name, n):
+    """
+    Encode and check resulting byte string length.
+    """
+    # The attribute name is a parameter to provide a useful error message.
     value = getattr(obj, name)
     if value is None:
         value = ''
