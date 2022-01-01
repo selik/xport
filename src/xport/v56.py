@@ -348,13 +348,13 @@ class MemberHeader(Mapping):
         )
 
     @classmethod
-    def from_dataset(cls, dataset: xport.Dataset):
+    def from_dataset(cls, dataset: xport.Dataset, Namestr=Namestr, variable_enumeration_start=1):
         """
         Construct a ``MemberHeader`` from an ``xport.Dataset``.
         """
         namestrs = []
         p = 0
-        for i, (k, v) in enumerate(dataset.items(), 1):
+        for i, (k, v) in enumerate(dataset.items(), variable_enumeration_start):
             ns = Namestr.from_variable(v, number=i)
             ns.position = p
             p += ns.length
@@ -615,6 +615,9 @@ class Member(xport.Dataset):
         """
         Encode in XPORT-format.
         """
+        return self._bytes()
+
+    def _bytes(self, MemberHeader=MemberHeader, Observations=Observations):
         LOG.debug(f'Encode {type(self).__name__}')
         dtype_kind_conversions = {
             'O': 'string',
@@ -725,6 +728,9 @@ SAS     SAS     SASLIB  \
         """
         XPORT-format bytes string.
         """
+        return self._bytes()
+
+    def _bytes(self, Member=Member):
         return self.template % {
             b'version': text_encode(self, 'sas_version', 8),
             b'os': text_encode(self, 'sas_os', 8),

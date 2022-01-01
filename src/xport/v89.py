@@ -11,13 +11,15 @@ The SAS V8 Transport File format, also called XPORT, or simply XPT, ...
 # Format fields may now exceed 8 characters (v9).
 
 # Standard Library
-import dataclasses
 import logging
 import re
 import struct
+import warnings
+from datetime import datetime
 
 # Xport Modules
 import xport.v56
+from xport.v56 import strftime, text_encode
 
 LOG = logging.getLogger(__name__)
 
@@ -39,6 +41,9 @@ class Library(xport.v56.Library):
         Construct a ``Library`` from an XPORT-format bytes string.
         """
         return super().from_bytes(bytestring, MemberHeader=MemberHeader, Member=Member)
+
+    def _bytes(self):
+        return super()._bytes(Member=Member)
 
 
 class MemberHeader(xport.v56.MemberHeader):
@@ -67,7 +72,7 @@ class MemberHeader(xport.v56.MemberHeader):
         The Transport Version 9 format allows long variable format and informat
         descriptions.
         """
-        self = super().from_bytes(bytestring)
+        self = super().from_bytes(bytestring, Namestr=Namestr)
         match = cls.pattern.search(bytestring)
         v9 = match['v'] == b'9'
         n = int(match['n_labels'].strip())
@@ -94,6 +99,68 @@ class MemberHeader(xport.v56.MemberHeader):
             raise ValueError(f'Expected only padding, got {data}')
         return self
 
+    @classmethod
+    def from_dataset(cls, dataset: xport.Dataset):
+        """
+        Construct a ``MemberHeader`` from an ``xport.Dataset``.
+        """
+        # The example "v8xpt" file I generated with Stata enumerated variables
+        # starting from 0, which differs from the v5 xpt files I've seen.  This
+        # may be a flaw in Stata's implementation that I've copied here.
+        return super().from_dataset(dataset, Namestr=Namestr, variable_enumeration_start=0)
+
+    template = f'''\
+HEADER RECORD{'*' * 7}MEMBV8  HEADER RECORD{'!' * 7}{'0' * 17}16{'0' * 8}140  \
+HEADER RECORD{'*' * 7}DSCPTV8 HEADER RECORD{'!' * 7}{'0' * 30}  \
+SAS     %(name)32bSASDATA %(version)8b%(os)8b%(created)16b\
+%(modified)16b{' ' * 16}%(label)40b%(type)8b\
+HEADER RECORD{'*' * 7}NAMSTV8 HEADER RECORD{'!' * 7}{'0' * 6}\
+%(n_variables)04d{'0' * 20}  \
+%(namestrs)b\
+HEADER RECORD{'*' * 7}LABELV8 HEADER RECORD{'!' * 7}%(n_labels)5s{' ' * 27}\
+%(labels)b\
+HEADER RECORD{'*' * 7}OBSV8   HEADER RECORD{'!' * 7}{'0' * 30}  \
+'''.encode('ascii')
+
+    def __bytes__(self):
+        """
+        Encode in XPORT format.
+        """
+        namestrs = b''.join(map(bytes, self.values()))
+        if len(namestrs) % 80:
+            namestrs += b' ' * (80 - len(namestrs) % 80)
+
+        # TODO: Handle long format and informat names for Transport v9.
+        labels = b''
+        n_labels = 0
+        triggers = {'label': 40}  # , 'format': 8, 'informat': 8}
+        for namestr in self.values():
+            strings = {
+                'name': namestr.name.encode('ascii'),
+                'label': namestr.label.encode('ascii'),
+            }
+            if any(len(strings[k]) > l for k, l in triggers.items()):
+                strings = list(strings.values())
+                fmt = '>hhh' + ''.join(f'{len(s)}s' for s in strings)
+                labels += struct.pack(fmt, namestr.number, *map(len, strings), *strings)
+                n_labels += 1
+        if len(labels) % 80:
+            labels += b' ' * (80 - len(labels) % 80)
+
+        return self.template % {
+            b'name': text_encode(self, 'name', 32),
+            b'label': text_encode(self, 'dataset_label', 40),
+            b'type': text_encode(self, 'dataset_type', 8),
+            b'n_variables': len(self),
+            b'n_labels': str(n_labels or '').ljust(5).encode('ascii'),
+            b'os': text_encode(self, 'sas_os', 8),
+            b'version': text_encode(self, 'sas_version', 8),
+            b'created': strftime(self.created if self.created else datetime.now()),
+            b'modified': strftime(self.modified if self.modified else datetime.now()),
+            b'namestrs': namestrs,
+            b'labels': labels,
+        }
+
 
 class Member(xport.v56.Member):
     """
@@ -107,23 +174,14 @@ class Member(xport.v56.Member):
         """
         return super().from_bytes(bytestring, MemberHeader=MemberHeader)
 
+    def _bytes(self):
+        return super()._bytes(MemberHeader=MemberHeader)
 
-@dataclasses.dataclass
+
 class Namestr(xport.v56.Namestr):
     """
     Variable metadata from a SAS Version 8 or 9 Transport (XPORT) file.
     """
-
-    vtype: xport.VariableType
-    length: int
-    number: int
-    name: str
-    label: str
-    format: xport.Format
-    informat: xport.Informat
-    position: int
-    longname: str
-    label_length: int
 
     # The C structure definition for namestr records in the v5 format
     # ends with 52 unused bytes.  The v8 format replaces that with:
@@ -145,17 +203,65 @@ class Namestr(xport.v56.Namestr):
         v56 = super().from_bytes(bytestring)
         fmt = cls.fmts[len(bytestring)]
         tokens = struct.unpack(fmt, bytestring)
+        longname = tokens[-3].strip(b'\x00').decode('ISO-8859-1').rstrip() or v56.name
+        if v56.name not in longname:
+            warnings.warn(f'Short name {v56.name} not included in {longname}')
+        # TODO: What should I do with the label length?  ``tokens[-2]``
         return cls(
             vtype=v56.vtype,
             length=v56.length,
             number=v56.number,
-            name=v56.name,
+            name=longname,
             label=v56.label,
             format=v56.format,
             informat=v56.informat,
             position=v56.position,
-            longname=tokens[-3],
-            label_length=tokens[-2],
+        )
+
+    def __bytes__(self):
+        """
+        Encode in XPORT format.
+        """
+        LOG.debug(f'Encode {type(self).__name__}')
+        fmt = self.fmts[140]
+
+        longname = text_encode(self, 'name', 32)
+        shortname = longname[:8]
+
+        longlabel = self.label.encode('ascii')
+        if len(longlabel) > 256:
+            raise ValueError('ASCII-encoded label {longlabel} exceeds 256 characters')
+        shortlabel = longlabel[:40].ljust(40)
+
+        # TODO: What's the right way to handle long format names for v9?
+        format_name = self.format.name.encode('ascii')[:8]
+        informat_name = self.informat.name.encode('ascii')[:8]
+
+        if self.number is None:
+            raise ValueError('Variable number not assigned')
+        if self.position is None:
+            raise ValueError('Variable position not assigned')
+
+        return struct.pack(
+            fmt,
+            self.vtype,
+            0,  # "Hash" of name, always 0.
+            self.length,
+            self.number,
+            shortname,
+            shortlabel,
+            format_name.ljust(8),
+            self.format.length,
+            self.format.decimals,
+            self.format.justify,
+            b'',  # Unused
+            informat_name.ljust(8),
+            self.informat.length,
+            self.informat.decimals,
+            self.position,
+            longname,
+            len(longlabel),
+            b'',  # Padding
         )
 
 
