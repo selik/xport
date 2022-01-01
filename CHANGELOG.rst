@@ -31,3 +31,6 @@ v3.3.0, 2021-12-25
 
 v3.4.0, 2021-12-25
   Add support for special missing values, like `.A`, that extend `float`.
+
+v3.5.0, 2021-12-31
+  Enable writing Transport Version 8 files.  Happy New Year!
