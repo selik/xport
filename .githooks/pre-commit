@@ -55,7 +55,7 @@ fi
 echo 'Formatting staged Python files with YAPF . . .'
 yapf --in-place --recursive --verbose "${PYTHON_FILES[@]}"
 echo 'Ordering import statements with isort . . .'
-isort --recursive "${PYTHON_FILES[@]}"
+isort "${PYTHON_FILES[@]}"
 
 CHANGED_FILES=()
 while IFS=$'\n' read -r line; do CHANGED_FILES+=("$line"); done \

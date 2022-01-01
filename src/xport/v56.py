@@ -177,6 +177,10 @@ class Namestr:
         informat_name = self.informat.name.encode('ascii')
         if len(informat_name) > 8:
             raise ValueError(f'ASCII-encoded format name {informat_name} longer than 8 characters')
+        if self.number is None:
+            raise ValueError('Variable number not assigned')
+        if self.position is None:
+            raise ValueError('Variable position not assigned')
         return struct.pack(
             fmt,
             self.vtype,
@@ -344,13 +348,13 @@ class MemberHeader(Mapping):
         )
 
     @classmethod
-    def from_dataset(cls, dataset: xport.Dataset):
+    def from_dataset(cls, dataset: xport.Dataset, Namestr=Namestr, variable_enumeration_start=1):
         """
         Construct a ``MemberHeader`` from an ``xport.Dataset``.
         """
         namestrs = []
         p = 0
-        for i, (k, v) in enumerate(dataset.items(), 1):
+        for i, (k, v) in enumerate(dataset.items(), variable_enumeration_start):
             ns = Namestr.from_variable(v, number=i)
             ns.position = p
             p += ns.length
@@ -611,6 +615,9 @@ class Member(xport.Dataset):
         """
         Encode in XPORT-format.
         """
+        return self._bytes()
+
+    def _bytes(self, MemberHeader=MemberHeader, Observations=Observations):
         LOG.debug(f'Encode {type(self).__name__}')
         dtype_kind_conversions = {
             'O': 'string',
@@ -721,6 +728,9 @@ SAS     SAS     SASLIB  \
         """
         XPORT-format bytes string.
         """
+        return self._bytes()
+
+    def _bytes(self, Member=Member):
         return self.template % {
             b'version': text_encode(self, 'sas_version', 8),
             b'os': text_encode(self, 'sas_os', 8),
@@ -731,6 +741,10 @@ SAS     SAS     SASLIB  \
 
 
 def text_encode(obj, name, n):
+    """
+    Encode and check resulting byte string length.
+    """
+    # The attribute name is a parameter to provide a useful error message.
     value = getattr(obj, name)
     if value is None:
         value = ''

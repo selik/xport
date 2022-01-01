@@ -1,6 +1,5 @@
 name: xport
 channels:
-  - defaults
   - conda-forge
 dependencies:
   - pip>=19
