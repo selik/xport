@@ -289,32 +289,9 @@ class Variable(pd.Series):
     ``Variable`` extends Pandas' ``Series``, adding SAS metadata.
     """
 
-    _metadata = [
-        'label',
-        'width',
-        'vtype',
-        '_format',
-        '_informat',
-    ]
-
-    def copy_metadata(self, other):
-        """
-        Copy metadata from another Variable.
-        """
-        # LOG.debug(f'Copying metadata from {other}')  # BUG: Causes infinite recursion!
-        if isinstance(other, Variable):
-            for name in self._metadata:
-                value = getattr(self, name, None)
-                if value is None:
-                    value = getattr(other, name, None)
-                object.__setattr__(self, name, value)
-
     def __repr__(self):
         """REPL-format."""
-        metadata = (name.strip('_') for name in self._metadata)
-        metadata = {name: getattr(self, name, None) for name in metadata}
-        metadata = (f'{name}: {value}' for name, value in metadata.items() if value is not None)
-        return f'{type(self).__name__}\n{super().__repr__()}\n{", ".join(metadata)}'
+        return f'{type(self).__name__}\n{super().__repr__()}\n{self.attrs}'
 
     def __init__(
         self,
@@ -335,35 +312,13 @@ class Variable(pd.Series):
         Initialize SAS variable metadata.
         """
         # TODO: Consider validating that the name isn't blank.
-        metadata = {
-            'label': label,
-            'vtype': vtype,
-            'width': width,
-            'format': format,
-            'informat': informat,
-        }
         super().__init__(data, index, dtype, name, copy, fastpath, **kwds)
-        for name, value in metadata.items():
-            if value is not None:
-                setattr(self, name, value)
-        self.copy_metadata(data)
-        for name, value in metadata.items():
-            setattr(self, name, getattr(self, name, value))
+        self.label = label
+        self.vtype = vtype
+        self.width = width
+        self.format = format
+        self.informat = informat
         LOG.debug(f'Initialized {self}')
-
-    def __finalize__(self, other, method=None, **kwds):
-        """
-        Extend Series finalize to handle more methods.
-        """
-        self = super().__finalize__(other, method, **kwds)
-        if method == 'concat':
-            first, *rest = other.objs
-            source = first
-        else:
-            source = other
-        self.copy_metadata(source)
-        LOG.debug(f'Finalized {self}')
-        return self
 
     @property
     def _constructor(self):
@@ -382,20 +337,44 @@ class Variable(pd.Series):
         return pd.DataFrame
 
     @property
+    def label(self):
+        return self.attrs.get('label')
+
+    @label.setter
+    def label(self, value):
+        self.attrs['label'] = value
+
+    @property
+    def vtype(self):
+        return self.attrs.get('vtype')
+
+    @vtype.setter
+    def vtype(self, value):
+        self.attrs['vtype'] = value
+
+    @property
+    def width(self):
+        return self.attrs.get('width')
+
+    @width.setter
+    def width(self, value):
+        self.attrs['width'] = value
+
+    @property
     def format(self):
         """
         SAS variable format.
         """
-        return self._format
+        return self.attrs.get('format')
 
     @format.setter
     def format(self, value):
         if value is None:
-            self._format = None
+            self.attrs['format'] = None
         elif isinstance(value, Format):
-            self._format = value
+            self.attrs['format'] = value
         else:
-            self._format = Format.from_spec(value)
+            self.attrs['format'] = Format.from_spec(value)
 
         if self.format and self.format.name.startswith('$'):
             self.vtype = VariableType.CHARACTER
@@ -407,16 +386,16 @@ class Variable(pd.Series):
         """
         SAS variable informat.
         """
-        return self._informat
+        return self.attrs.get('informat')
 
     @informat.setter
     def informat(self, value):
         if value is None:
-            self._informat = None
+            self.attrs['informat'] = None
         elif isinstance(value, Informat):
-            self._informat = value
+            self.attrs['informat'] = value
         else:
-            self._informat = Informat.from_spec(value)
+            self.attrs['informat'] = Informat.from_spec(value)
 
         if self.informat and self.informat.name.startswith('$'):
             self.vtype = VariableType.CHARACTER
@@ -431,36 +410,8 @@ class Dataset(pd.DataFrame):
     ``Dataset`` extends Pandas' ``DataFrame``, adding SAS metadata.
     """
 
-    _metadata = [
-        'name',
-        'dataset_label',
-        'dataset_type',
-        'created',
-        'modified',
-        'sas_os',
-        'sas_version',
-    ]
-
-    def copy_metadata(self, other):
-        """
-        Copy metadata from a Dataset or mapping of Variables.
-        """
-        # LOG.debug(f'Copying metadata from {other}')  # BUG: Causes infinite recursion!
-        if isinstance(other, Dataset):
-            for name in self._metadata:
-                object.__setattr__(self, name, getattr(other, name, None))
-        if isinstance(other, (Dataset, Mapping)):
-            for k, v in self.items():
-                try:
-                    v.copy_metadata(other[k])
-                except KeyError:
-                    continue
-
     def __repr__(self):
         """REPL-format."""
-        metadata = (name.strip('_') for name in self._metadata)
-        metadata = {name: getattr(self, name, None) for name in metadata}
-        metadata = (f'{name}: {value}' for name, value in metadata.items() if value)
         template = '''\
             {cls} {name}
             {variables_metadata}
@@ -472,7 +423,7 @@ class Dataset(pd.DataFrame):
             cls=type(self).__name__,
             name=self.name,
             super=super().__repr__(),
-            metadata=', '.join(metadata),
+            metadata=self.attrs,
             variables_metadata=self.contents,
         )
 
@@ -498,54 +449,71 @@ class Dataset(pd.DataFrame):
         # TODO: Consider validating dataset type: {'DATA', 'VIEW', 'CATALOG'}.
         #       I think only 'DATA' is supported by the XPORT format.
         # TODO: Consider validating that the name isn't blank.
-        metadata = {
-            'name': name,
-            'dataset_label': dataset_label,
-            'created': created,
-            'modified': modified,
-            'sas_os': sas_os,
-            'sas_version': sas_version,
-            'dataset_type': dataset_type,
-        }
         super().__init__(data=data, index=index, columns=columns, dtype=dtype, copy=copy, **kwds)
-        for name, value in metadata.items():
-            if value is not None:
-                setattr(self, name, value)
-        self.copy_metadata(data)
-        for name, value in metadata.items():
-            setattr(self, name, getattr(self, name, value))
+        self.name = name
+        self.dataset_label = dataset_label
+        self.dataset_type = dataset_type
+        self.created = created
+        self.modified = modified
+        self.sas_os = sas_os
+        self.sas_version = sas_version
         # LOG.debug(f'Initialized {self}')  # BUG: Causes infinite recursion!
 
-    def __finalize__(self, other, method=None, **kwds):
-        """
-        Propagate metadata to a copy.
-        """
-        # TODO: Is the call to super redundant?
-        self = super().__finalize__(other, method, **kwds)
-        if method == 'concat':
-            first, *rest = other.objs
-            source = first
-        elif method == 'merge':
-            source = other.left
-        else:
-            source = other
-        self.copy_metadata(source)
-        LOG.debug(f'Finalized {self}')
-        return self
+    @property
+    def name(self):
+        return self.attrs.get('name')
 
-    def __setitem__(self, key, value):
-        """
-        When inserting/updating a column, we must copy metadata.
-        """
-        # TODO: There are probably other ways Pandas adds columns to
-        #       a DataFrame.  We need to copy metadata in those, too.
-        old = self.iloc[:0].copy()
-        super().__setitem__(key, value)
-        if isinstance(value, Variable):
-            self[key].copy_metadata(value)
-        for k, v in old.items():
-            if k != key:
-                self[k].copy_metadata(v)
+    @name.setter
+    def name(self, value):
+        self.attrs['name'] = value
+
+    @property
+    def dataset_label(self):
+        return self.attrs.get('dataset_label')
+
+    @dataset_label.setter
+    def dataset_label(self, value):
+        self.attrs['dataset_label'] = value
+
+    @property
+    def dataset_type(self):
+        return self.attrs.get('dataset_type')
+
+    @dataset_type.setter
+    def dataset_type(self, value):
+        self.attrs['dataset_type'] = value
+
+    @property
+    def created(self):
+        return self.attrs.get('created')
+
+    @created.setter
+    def created(self, value):
+        self.attrs['created'] = value
+
+    @property
+    def modified(self):
+        return self.attrs.get('modified')
+
+    @modified.setter
+    def modified(self, value):
+        self.attrs['modified'] = value
+
+    @property
+    def sas_os(self):
+        return self.attrs.get('sas_os')
+
+    @sas_os.setter
+    def sas_os(self, value):
+        self.attrs['sas_os'] = value
+
+    @property
+    def sas_version(self):
+        return self.attrs.get('sas_version')
+
+    @sas_version.setter
+    def sas_version(self, value):
+        self.attrs['sas_version'] = value
 
     @property
     def _constructor(self):
