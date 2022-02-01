@@ -476,6 +476,14 @@ class Dataset(pd.DataFrame):
             variables_metadata=self.contents,
         )
 
+    @property
+    def label(self):
+        return self.dataset_label
+
+    @label.setter
+    def label(self, value):
+        self.dataset_label = value
+
     def __init__(
         self,
         data=None,
@@ -484,6 +492,7 @@ class Dataset(pd.DataFrame):
         dtype=None,
         copy=False,
         name=None,
+        label=None,
         dataset_label=None,
         dataset_type=None,
         created=None,
@@ -495,12 +504,19 @@ class Dataset(pd.DataFrame):
         """
         Initialize SAS dataset metadata.
         """
+        if dataset_label is not None:
+            label = dataset_label
+            warnings.warn(
+                'Use ``label`` instead of ``dataset_label``',
+                DeprecationWarning,
+                stacklevel=2,
+            )
         # TODO: Consider validating dataset type: {'DATA', 'VIEW', 'CATALOG'}.
         #       I think only 'DATA' is supported by the XPORT format.
         # TODO: Consider validating that the name isn't blank.
         metadata = {
             'name': name,
-            'dataset_label': dataset_label,
+            'dataset_label': label,
             'created': created,
             'modified': modified,
             'sas_os': sas_os,

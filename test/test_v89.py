@@ -76,7 +76,7 @@ def library():
             'Str': ['a', '1', '\N{snowman}'.encode().decode('ISO-8859-1'), ''],
         },
         name='DATASET',
-        dataset_label='',
+        label='',
         dataset_type='',
     )
     ds.created = ds.modified = datetime.datetime(2021, 11, 11, 22, 33, 22)
@@ -134,3 +134,64 @@ class TestLibrary:
     def test_encode_formats(self):
         """Test encoding long format descriptions."""
         assert False
+
+
+class TestEncodeLabels:
+    """
+    Validate writing data set and variable labels.
+    """
+
+    def test_dataset(self):
+        """
+        Data set label, no variable label.
+        """
+        example = xport.Dataset({'a': xport.Variable()}, name='TEST', label='This is a test')
+        bytestring = xport.v89.dumps(example)
+        library = xport.v89.loads(bytestring)
+        assert example.label == library['TEST'].label == 'This is a test'
+
+    def test_dataset_deprecated(self):
+        """
+        The ``Dataset.label`` attribute is now ``Dataset.label``.
+        """
+        example = xport.Dataset(name='TEST', dataset_label='This is a test')
+        bytestring = xport.v89.dumps(example)
+        library = xport.v89.loads(bytestring)
+        assert example.label == library['TEST'].label == 'This is a test'
+
+    def test_variable(self):
+        """
+        Only a variable lable, no data set label.
+        """
+        example = xport.Dataset({'a': xport.Variable(label='b')}, name='TEST')
+        bytestring = xport.v89.dumps(example)
+        library = xport.v89.loads(bytestring)
+        assert example.label is None
+        assert library['TEST'].label == ''
+        assert example['a'].label == library['TEST']['a'].label == 'b'
+
+    def test_both(self):
+        """
+        Both data set label and variable label.
+        """
+        example = xport.Dataset(
+            data={'a': xport.Variable(label='b')},
+            name='TEST',
+            label='Test',
+        )
+        bytestring = xport.v89.dumps(example)
+        library = xport.v89.loads(bytestring)
+        assert example.label == library['TEST'].label == 'Test'
+        assert example['a'].label == library['TEST']['a'].label == 'b'
+
+    def test_neither(self):
+        """
+        Neither data set label nor variable label.
+        """
+        example = xport.Dataset({'a': xport.Variable()}, name='TEST')
+        bytestring = xport.v89.dumps(example)
+        library = xport.v89.loads(bytestring)
+        assert example.label is None
+        assert library['TEST'].label == ''
+        assert example['a'].label is None
+        assert library['TEST']['a'].label == ''

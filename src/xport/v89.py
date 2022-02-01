@@ -75,7 +75,7 @@ class MemberHeader(xport.v56.MemberHeader):
         self = super().from_bytes(bytestring, Namestr=Namestr)
         match = cls.pattern.search(bytestring)
         v9 = match['v'] == b'9'
-        n = int(match['n_labels'].strip())
+        n = int(match['n_labels'].strip() or '0')
         data = match['labels']
         namestrs = {n.number: n for n in self.namestrs.values()}
         for _ in range(n):
@@ -95,7 +95,7 @@ class MemberHeader(xport.v56.MemberHeader):
                     data[i:j].decode('ISO-8859-1')
                 )
                 data = data[j:]
-        if set(data) != {ord(b' ')}:
+        if data and set(data) != {ord(b' ')}:
             raise ValueError(f'Expected only padding, got {data}')
         return self
 
@@ -137,7 +137,7 @@ HEADER RECORD{'*' * 7}OBSV8   HEADER RECORD{'!' * 7}{'0' * 30}  \
         for namestr in self.values():
             strings = {
                 'name': namestr.name.encode('ascii'),
-                'label': namestr.label.encode('ascii'),
+                'label': (namestr.label if namestr.label is not None else '').encode('ascii'),
             }
             if any(len(strings[k]) > l for k, l in triggers.items()):
                 strings = list(strings.values())
@@ -228,7 +228,7 @@ class Namestr(xport.v56.Namestr):
         longname = text_encode(self, 'name', 32)
         shortname = longname[:8]
 
-        longlabel = self.label.encode('ascii')
+        longlabel = (self.label if self.label is not None else '').encode('ascii')
         if len(longlabel) > 256:
             raise ValueError('ASCII-encoded label {longlabel} exceeds 256 characters')
         shortlabel = longlabel[:40].ljust(40)
