@@ -29,7 +29,7 @@ def library():
             'TEMP': [98.6, 95.4, 86.7, 93.4, 103.5, 56.7],
         },
         name='ECON',
-        dataset_label='Blank-padded dataset label',
+        label='Blank-padded dataset label',
         dataset_type='',
     )
     ds.created = ds.modified = datetime(2015, 11, 13, 10, 35, 8)
@@ -382,7 +382,7 @@ class TestEncode:
         invalid = [
             xport.Library(xport.Dataset(), sas_version='a' * 9),
             xport.Library(xport.Dataset(name='a' * 9)),
-            xport.Library(xport.Dataset(dataset_label='a' * 41)),
+            xport.Library(xport.Dataset(label='a' * 41)),
             xport.Library(xport.Dataset({'a' * 9: [1.0]})),
             xport.Library(xport.Dataset({'a': xport.Variable([1.0], label='a' * 41)})),
         ]
@@ -419,3 +419,64 @@ class TestEncode:
         with pytest.raises((TypeError, AttributeError)):
             ds = xport.Dataset(modified=1)
             xport.v56.dumps(ds)
+
+
+class TestEncodeLabels:
+    """
+    Validate writing data set and variable labels.
+    """
+
+    def test_dataset(self):
+        """
+        Data set label, no variable label.
+        """
+        example = xport.Dataset({'a': xport.Variable()}, name='TEST', label='This is a test')
+        bytestring = xport.v56.dumps(example)
+        library = xport.v56.loads(bytestring)
+        assert example.label == library['TEST'].label == 'This is a test'
+
+    def test_dataset_deprecated(self):
+        """
+        The ``Dataset.label`` attribute is now ``Dataset.label``.
+        """
+        example = xport.Dataset(name='TEST', dataset_label='This is a test')
+        bytestring = xport.v56.dumps(example)
+        library = xport.v56.loads(bytestring)
+        assert example.label == library['TEST'].label == 'This is a test'
+
+    def test_variable(self):
+        """
+        Only a variable lable, no data set label.
+        """
+        example = xport.Dataset({'a': xport.Variable(label='b')}, name='TEST')
+        bytestring = xport.v56.dumps(example)
+        library = xport.v56.loads(bytestring)
+        assert example.label is None
+        assert library['TEST'].label == ''
+        assert example['a'].label == library['TEST']['a'].label == 'b'
+
+    def test_both(self):
+        """
+        Both data set label and variable label.
+        """
+        example = xport.Dataset(
+            data={'a': xport.Variable(label='b')},
+            name='TEST',
+            label='Test',
+        )
+        bytestring = xport.v56.dumps(example)
+        library = xport.v56.loads(bytestring)
+        assert example.label == library['TEST'].label == 'Test'
+        assert example['a'].label == library['TEST']['a'].label == 'b'
+
+    def test_neither(self):
+        """
+        Neither data set label nor variable label.
+        """
+        example = xport.Dataset({'a': xport.Variable()}, name='TEST')
+        bytestring = xport.v56.dumps(example)
+        library = xport.v56.loads(bytestring)
+        assert example.label is None
+        assert library['TEST'].label == ''
+        assert example['a'].label is None
+        assert library['TEST']['a'].label == ''
