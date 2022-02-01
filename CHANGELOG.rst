@@ -34,3 +34,6 @@ v3.4.0, 2021-12-25
 
 v3.5.0, 2021-12-31
   Enable writing Transport Version 8 files.  Happy New Year!
+
+v3.5.1, 2022-02-01
+  Fix issues with writing ``Dataset.label`` and ``Variable.label``.
