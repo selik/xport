@@ -421,6 +421,75 @@ class TestEncode:
             xport.v56.dumps(ds)
 
 
+class TestTextEncoding:
+    """
+    Validate writing and reading different text encodings.
+    """
+
+    def test_default(self):
+        """
+        Test handling non-ASCII Windows-1252 characters.
+        """
+        enye = '\u00f1'
+        enye.encode('Windows-1252')
+        with pytest.raises(UnicodeEncodeError):
+            enye.encode('ascii')
+
+        # Metadata defaults to ASCII
+        with pytest.raises(UnicodeEncodeError):
+            xport.v56.dumps(xport.Dataset(name=enye))
+        # TODO: Ensure failure to load a non-ASCII dataset name.
+
+        # Data defaults to Windows-1252
+        example = xport.Dataset({'v': xport.Variable([enye])}, name='d')
+        bytestring = xport.v56.dumps(example)
+        library = xport.v56.loads(bytestring)
+        assert library['d']['v'][0] == enye
+
+    def test_ascii(self):
+        """
+        Test rejecting non-ASCII characters.
+        """
+        enye = '\u00f1'
+        with pytest.raises(UnicodeEncodeError):
+            enye.encode('ascii')
+
+        # We're only testing the data, not metadata.
+        enye.encode(xport.v56.TEXT_DATA_ENCODING)
+        example = xport.Dataset({'v': xport.Variable([enye])})
+        with pytest.raises(UnicodeEncodeError):
+            with xport.v56._encoding(data='ascii'):
+                xport.v56.dumps(example)
+        bytestring = xport.v56.dumps(example)
+        with pytest.raises(UnicodeDecodeError):
+            with xport.v56._encoding(data='ascii'):
+                xport.v56.loads(bytestring)
+
+    def test_unicode(self):
+        """
+        Test encoding and decoding with UTF-8.
+        """
+        comet = '\u2604'
+        with pytest.raises(UnicodeEncodeError):
+            comet.encode('ascii')
+
+        # Data
+        example = xport.Dataset({'v': xport.Variable([comet])})
+        with pytest.raises(UnicodeEncodeError):
+            xport.v56.dumps(example)
+        with xport.v56._encoding(data='utf-8'):
+            bytestring = xport.v56.dumps(example)
+            library = xport.v56.loads(bytestring)
+        assert library['']['v'][0] == comet
+
+        # Metadata
+        example = xport.Dataset(name=comet)
+        with xport.v56._encoding(metadata='utf-8'):
+            bytestring = xport.v56.dumps(example)
+            library = xport.v56.loads(bytestring)
+        assert comet in library
+
+
 class TestEncodeLabels:
     """
     Validate writing data set and variable labels.
@@ -430,7 +499,11 @@ class TestEncodeLabels:
         """
         Data set label, no variable label.
         """
-        example = xport.Dataset({'a': xport.Variable()}, name='TEST', label='This is a test')
+        example = xport.Dataset(
+            {'a': xport.Variable(dtype=object)},
+            name='TEST',
+            label='This is a test',
+        )
         bytestring = xport.v56.dumps(example)
         library = xport.v56.loads(bytestring)
         assert example.label == library['TEST'].label == 'This is a test'
@@ -439,7 +512,8 @@ class TestEncodeLabels:
         """
         The ``Dataset.label`` attribute is now ``Dataset.label``.
         """
-        example = xport.Dataset(name='TEST', dataset_label='This is a test')
+        with pytest.warns(DeprecationWarning, match=r'dataset_label'):
+            example = xport.Dataset(name='TEST', dataset_label='This is a test')
         bytestring = xport.v56.dumps(example)
         library = xport.v56.loads(bytestring)
         assert example.label == library['TEST'].label == 'This is a test'
@@ -448,7 +522,7 @@ class TestEncodeLabels:
         """
         Only a variable lable, no data set label.
         """
-        example = xport.Dataset({'a': xport.Variable(label='b')}, name='TEST')
+        example = xport.Dataset({'a': xport.Variable(label='b', dtype=object)}, name='TEST')
         bytestring = xport.v56.dumps(example)
         library = xport.v56.loads(bytestring)
         assert example.label is None
@@ -460,7 +534,7 @@ class TestEncodeLabels:
         Both data set label and variable label.
         """
         example = xport.Dataset(
-            data={'a': xport.Variable(label='b')},
+            data={'a': xport.Variable(label='b', dtype=object)},
             name='TEST',
             label='Test',
         )
@@ -473,7 +547,7 @@ class TestEncodeLabels:
         """
         Neither data set label nor variable label.
         """
-        example = xport.Dataset({'a': xport.Variable()}, name='TEST')
+        example = xport.Dataset({'a': xport.Variable(dtype=object)}, name='TEST')
         bytestring = xport.v56.dumps(example)
         library = xport.v56.loads(bytestring)
         assert example.label is None
