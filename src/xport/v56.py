@@ -10,6 +10,7 @@ The SAS V5 Transport File format, also called XPORT, or simply XPT, ...
 # Floating point data are IBM-style double format.
 
 # Standard Library
+import contextlib
 import logging
 import math
 import re
@@ -29,9 +30,33 @@ __all__ = [
     'loads',
     'dump',
     'dumps',
+    '_encoding',
 ]
 
 LOG = logging.getLogger(__name__)
+
+# TODO: Make text encoding a method argument, not a global.
+# TODO: Consider using Windows-1252 as the default, like HTML5.
+TEXT_DATA_ENCODING = 'ISO-8859-1'
+TEXT_METADATA_ENCODING = 'ascii'
+
+
+@contextlib.contextmanager
+def _encoding(data=TEXT_DATA_ENCODING, metadata=TEXT_METADATA_ENCODING):
+    """
+    Temporarily change the module's text encoding.
+    """
+    global TEXT_DATA_ENCODING
+    global TEXT_METADATA_ENCODING
+    stash = {'data': TEXT_DATA_ENCODING, 'metadata': TEXT_METADATA_ENCODING}
+    try:
+        TEXT_DATA_ENCODING = data
+        TEXT_METADATA_ENCODING = metadata
+        yield
+    finally:
+        LOG.debug(f'Reverting text encoding to {stash}')
+        TEXT_DATA_ENCODING = stash['data']
+        TEXT_METADATA_ENCODING = stash['metadata']
 
 
 class Overflow(ArithmeticError):
@@ -126,7 +151,8 @@ class Namestr:
         elif vtype == xport.VariableType.NUMERIC:
             length = 8
         else:
-            length = variable.str.len().max()
+            # TODO: Avoid encoding twice, once here and once in ``Observations``.
+            length = variable.str.encode(TEXT_DATA_ENCODING).str.len().max()
         try:
             length = max(1, length)  # We need at least 1 byte per value.
         except TypeError:
@@ -158,8 +184,8 @@ class Namestr:
             vtype=xport.VariableType(tokens[0]),
             length=tokens[2],
             number=tokens[3],
-            name=tokens[4].strip(b'\x00').decode('ISO-8859-1').rstrip(),
-            label=tokens[5].strip(b'\x00').decode('ISO-8859-1').rstrip(),
+            name=tokens[4].strip(b'\x00').decode(TEXT_METADATA_ENCODING).rstrip(),
+            label=tokens[5].strip(b'\x00').decode(TEXT_METADATA_ENCODING).rstrip(),
             format=xport.Format.from_struct_tokens(*tokens[6:10]),
             informat=xport.Informat.from_struct_tokens(*tokens[11:14]),
             position=tokens[14],
@@ -392,11 +418,11 @@ class MemberHeader(Mapping):
         if len(namestrs) != n:
             raise ValueError(f'Expected {n}, got {len(namestrs)}')
         self = cls(
-            name=mo['name'].strip(b'\x00').decode('ISO-8859-1').strip(),
-            dataset_label=mo['label'].strip(b'\x00').decode('ISO-8859-1').strip(),
-            dataset_type=mo['type'].strip(b'\x00').decode('ISO-8859-1').strip(),
-            sas_os=mo['os'].strip(b'\x00').decode('ISO-8859-1').strip(),
-            sas_version=mo['version'].strip().decode('ISO-8859-1'),
+            name=mo['name'].strip(b'\x00').decode(TEXT_METADATA_ENCODING).strip(),
+            dataset_label=mo['label'].strip(b'\x00').decode(TEXT_METADATA_ENCODING).strip(),
+            dataset_type=mo['type'].strip(b'\x00').decode(TEXT_METADATA_ENCODING).strip(),
+            sas_os=mo['os'].strip(b'\x00').decode(TEXT_METADATA_ENCODING).strip(),
+            sas_version=mo['version'].strip().decode(TEXT_METADATA_ENCODING),
             created=strptime(mo['created']),
             modified=strptime(mo['modified']),
             namestrs=namestrs,
@@ -478,7 +504,7 @@ class Observations(Iterator):
         LOG.debug(f'Decode {type(cls).__name__}')
 
         def character_decode(s):
-            return s.decode('ISO-8859-1').rstrip()
+            return s.decode(TEXT_DATA_ENCODING).rstrip()
 
         converters = []
         for namestr in header.values():
@@ -520,7 +546,7 @@ class Observations(Iterator):
 
             def encoder(s):
                 try:
-                    return s.encode('ISO-8859-1').ljust(length)
+                    return s.encode(TEXT_DATA_ENCODING).ljust(length)
                 except AttributeError:
                     return b' '
                 # If handling errors from None, NAType, etc. is a
@@ -710,8 +736,8 @@ class Library(xport.Library):
             members=map(Member.from_bytes, chunks),
             created=strptime(mo['created']),
             modified=strptime(mo['modified']),
-            sas_os=mo['os'].strip(b'\x00').decode('ISO-8859-1').strip(),
-            sas_version=mo['version'].strip(b'\x00').decode('ISO-8859-1').strip(),
+            sas_os=mo['os'].strip(b'\x00').decode(TEXT_METADATA_ENCODING).strip(),
+            sas_version=mo['version'].strip(b'\x00').decode(TEXT_METADATA_ENCODING).strip(),
         )
         LOG.info(f'Decoded {self}')
         return self
@@ -748,9 +774,9 @@ def text_encode(obj, name, n):
     value = getattr(obj, name)
     if value is None:
         value = ''
-    bytestring = value.encode('ascii').ljust(n)
+    bytestring = value.encode(TEXT_METADATA_ENCODING).ljust(n)
     if len(bytestring) > n:
-        raise ValueError(f'ASCII-encoded {name} {bytestring} longer than {n} characters')
+        raise ValueError(f'Encoded {name} {bytestring} longer than {n} characters')
     return bytestring
 
 

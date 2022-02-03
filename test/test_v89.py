@@ -136,6 +136,74 @@ class TestLibrary:
         assert False
 
 
+class TestTextEncoding:
+    """
+    Validate writing and reading different text encodings.
+    """
+
+    def test_default(self):
+        """
+        Test handling non-ASCII Windows-1252 characters.
+        """
+        enye = '\u00f1'
+        enye.encode('Windows-1252')
+        with pytest.raises(UnicodeEncodeError):
+            enye.encode('ascii')
+
+        # Metadata defaults to ASCII
+        with pytest.raises(UnicodeEncodeError):
+            xport.v89.dumps(xport.Dataset(name=enye))
+        # TODO: Ensure failure to load a non-ASCII dataset name.
+
+        # Data defaults to Windows-1252
+        example = xport.Dataset({'v': xport.Variable([enye])}, name='d')
+        bytestring = xport.v89.dumps(example)
+        library = xport.v89.loads(bytestring)
+        assert library['d']['v'][0] == enye
+
+    def test_ascii(self):
+        """
+        Test rejecting non-ASCII characters.
+        """
+        enye = '\u00f1'
+        with pytest.raises(UnicodeEncodeError):
+            enye.encode('ascii')
+
+        # We're only testing the data, not metadata.
+        example = xport.Dataset({'v': xport.Variable([enye])})
+        with pytest.raises(UnicodeEncodeError):
+            with xport.v89._encoding(data='ascii'):
+                xport.v89.dumps(example)
+        bytestring = xport.v89.dumps(example)
+        with pytest.raises(UnicodeDecodeError):
+            with xport.v89._encoding(data='ascii'):
+                xport.v89.loads(bytestring)
+
+    def test_unicode(self):
+        """
+        Test encoding and decoding with UTF-8.
+        """
+        comet = '\u2604'
+        with pytest.raises(UnicodeEncodeError):
+            comet.encode('ascii')
+
+        # Data
+        example = xport.Dataset({'v': xport.Variable([comet])})
+        with pytest.raises(UnicodeEncodeError):
+            xport.v89.dumps(example)
+        with xport.v89._encoding(data='utf-8'):
+            bytestring = xport.v89.dumps(example)
+            library = xport.v89.loads(bytestring)
+        assert library['']['v'][0] == comet
+
+        # Metadata
+        example = xport.Dataset(name=comet)
+        with xport.v89._encoding(metadata='utf-8'):
+            bytestring = xport.v89.dumps(example)
+            library = xport.v89.loads(bytestring)
+        assert comet in library
+
+
 class TestEncodeLabels:
     """
     Validate writing data set and variable labels.

@@ -37,3 +37,6 @@ v3.5.0, 2021-12-31
 
 v3.5.1, 2022-02-01
   Fix issues with writing ``Dataset.label`` and ``Variable.label``.
+
+v3.6.0, 2022-02-02
+  Add beta support for changing the text encoding for data and metadata.
