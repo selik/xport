@@ -40,3 +40,6 @@ v3.5.1, 2022-02-01
 
 v3.6.0, 2022-02-02
   Add beta support for changing the text encoding for data and metadata.
+
+v3.6.1, 2022-02-15
+  Fix issue with v8 format when the dataset has no long labels.

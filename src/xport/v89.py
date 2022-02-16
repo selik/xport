@@ -66,8 +66,8 @@ class MemberHeader(xport.v56.MemberHeader):
         rb'(?P<modified>.{16}) {16}(?P<label>.{40})(?P<type>    DATA|    VIEW| {8})'
         rb'HEADER RECORD\*{7}NAMSTV8 HEADER RECORD\!{7}0{6}(?P<n_variables>.{4})0{20}  '
         rb'(?P<namestrs>.*?)'
-        rb'HEADER RECORD\*{7}LABELV(?P<v>8|9) HEADER RECORD\!{7}(?P<n_labels>.{5}) {27}'
-        rb'(?P<labels>.*?)'
+        rb'(HEADER RECORD\*{7}LABELV(?P<v>8|9) HEADER RECORD\!{7}(?P<n_labels>.{5}) {27}'
+        rb'(?P<labels>.*?))?'
         rb'HEADER RECORD\*{7}OBSV8   HEADER RECORD\!{7}0{30}  ', re.DOTALL
     )
 
@@ -83,7 +83,7 @@ class MemberHeader(xport.v56.MemberHeader):
         self = super().from_bytes(bytestring, Namestr=Namestr)
         match = cls.pattern.search(bytestring)
         v9 = match['v'] == b'9'
-        n = int(match['n_labels'].strip() or '0')
+        n = int((match['n_labels'] or '0').strip())
         data = match['labels']
         namestrs = {n.number: n for n in self.namestrs.values()}
         for _ in range(n):
@@ -123,7 +123,6 @@ SAS     %(name)32bSASDATA %(version)8b%(os)8b%(created)16b\
 HEADER RECORD{'*' * 7}NAMSTV8 HEADER RECORD{'!' * 7}{'0' * 6}\
 %(n_variables)04d{'0' * 20}  \
 %(namestrs)b\
-HEADER RECORD{'*' * 7}LABELV8 HEADER RECORD{'!' * 7}%(n_labels)5s{' ' * 27}\
 %(labels)b\
 HEADER RECORD{'*' * 7}OBSV8   HEADER RECORD{'!' * 7}{'0' * 30}  \
 '''.encode('ascii')
@@ -151,15 +150,19 @@ HEADER RECORD{'*' * 7}OBSV8   HEADER RECORD{'!' * 7}{'0' * 30}  \
                 fmt = '>hhh' + ''.join(f'{len(s)}s' for s in strings)
                 labels += struct.pack(fmt, namestr.number, *map(len, strings), *strings)
                 n_labels += 1
+        if labels:
+            labels = f'''\
+HEADER RECORD{'*' * 7}LABELV8 HEADER RECORD{'!' * 7}%(n_labels)5s{' ' * 27}\
+'''.encode('ascii') % {
+                b'n_labels': str(n_labels or '').ljust(5).encode(xport.v56.TEXT_METADATA_ENCODING),
+            } + labels
         if len(labels) % 80:
             labels += b' ' * (80 - len(labels) % 80)
-
         return self.template % {
             b'name': text_encode(self, 'name', 32),
             b'label': text_encode(self, 'dataset_label', 40),
             b'type': text_encode(self, 'dataset_type', 8),
             b'n_variables': len(self),
-            b'n_labels': str(n_labels or '').ljust(5).encode(xport.v56.TEXT_METADATA_ENCODING),
             b'os': text_encode(self, 'sas_os', 8),
             b'version': text_encode(self, 'sas_version', 8),
             b'created': strftime(self.created if self.created else datetime.now()),
