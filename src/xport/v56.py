@@ -185,7 +185,7 @@ class Namestr:
             length=tokens[2],
             number=tokens[3],
             name=tokens[4].strip(b'\x00').decode(TEXT_METADATA_ENCODING).rstrip(),
-            label=tokens[5].strip(b'\x00').decode(TEXT_METADATA_ENCODING).rstrip(),
+            label=tokens[5].strip(b'\x00').decode('latin').rstrip(),
             format=xport.Format.from_struct_tokens(*tokens[6:10]),
             informat=xport.Informat.from_struct_tokens(*tokens[11:14]),
             position=tokens[14],
